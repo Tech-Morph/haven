@@ -1,3 +1,5 @@
+import { pickWidgetImage } from './app.js';
+
 export function updateProps(container, selection, onChange, onDelete, onDuplicate, onAlign, theme, onEditTheme, onEntitySearch, onAttributeSearch) {
   _onEntitySearch    = onEntitySearch    || null;
   _onAttributeSearch = onAttributeSearch || null;
@@ -228,7 +230,60 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
 
   if (w.type === 'image') {
     addSectionHeader(container, 'Source');
-    addText(container, 'url', w.url, onChange);
+
+    // URL row with Upload + Clear buttons (mirrors page background image UI)
+    (function () {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-bottom:6px;';
+
+      var label = document.createElement('div');
+      label.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px;';
+      label.textContent = 'url';
+      wrap.appendChild(label);
+
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;align-items:center;';
+
+      var inp = document.createElement('input');
+      inp.type        = 'text';
+      inp.value       = w.url || '';
+      inp.placeholder = 'images/photo.jpg';
+      inp.style.flex  = '1';
+      inp.addEventListener('change', function () {
+        var v = inp.value.trim();
+        onChange('url', v || undefined);
+        if (!v) { thumb.style.display = 'none'; }
+      });
+
+      var uploadBtn = document.createElement('button');
+      uploadBtn.textContent = 'Upload\u2026';
+      uploadBtn.style.cssText = 'background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;font-size:12px;flex-shrink:0;';
+      uploadBtn.addEventListener('click', function () {
+        pickWidgetImage(w, inp, thumb, onChange);
+      });
+
+      var clearBtn = document.createElement('button');
+      clearBtn.textContent = '\u2715';
+      clearBtn.title = 'Clear image URL';
+      clearBtn.style.cssText = 'background:none;border:1px solid var(--border);color:var(--muted);padding:5px 7px;border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;';
+      clearBtn.addEventListener('click', function () {
+        inp.value = '';
+        onChange('url', undefined);
+        thumb.style.display = 'none';
+      });
+
+      row.appendChild(inp);
+      row.appendChild(uploadBtn);
+      row.appendChild(clearBtn);
+      wrap.appendChild(row);
+
+      var thumb = document.createElement('img');
+      thumb.style.cssText = 'display:none;width:100%;max-height:90px;object-fit:cover;border-radius:4px;margin-top:6px;border:1px solid var(--border);';
+      wrap.appendChild(thumb);
+
+      container.appendChild(wrap);
+    }());
+
     addText(container, 'entity', w.entity, onChange);
     addText(container, 'entity_attribute', w.entity_attribute, onChange, { getEntity: function() { return w.entity; } });
     addSelect(container, 'fit', w.fit, ['cover', 'contain', 'stretch'], onChange);
@@ -420,14 +475,17 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
       'option_radius', makeNumberInput(w.option_radius, function(v) { onChange('option_radius', v); })
     );
     addPairRow(container,
-      'option_size', makeNumberInput(w.option_size, function(v) { onChange('option_size', v); }),
-      'option_gap', makeNumberInput(w.option_gap, function(v) { onChange('option_gap', v); })
+      'icon_size',  makeNumberInput(w.icon_size,  function(v) { onChange('icon_size', v); }),
+      'label_size', makeNumberInput(w.label_size, function(v) { onChange('label_size', v); })
     );
     addPairRow(container,
-      'padding', makeNumberInput(w.padding, function(v) { onChange('padding', v); }),
-      'placeholder', makeTextInput(w.placeholder, function(v) { onChange('placeholder', v); })
+      'option_gap', makeNumberInput(w.option_gap, function(v) { onChange('option_gap', v); }),
+      'padding',    makeNumberInput(w.padding,    function(v) { onChange('padding', v); })
     );
-    addNumber(container, 'opacity', w.opacity, onChange);
+    addPairRow(container,
+      'placeholder', makeTextInput(w.placeholder, function(v) { onChange('placeholder', v); }),
+      'opacity',     makeNumberInput(w.opacity,    function(v) { onChange('opacity', v); })
+    );
 
     addSectionHeader(container, 'Action');
     addJsonObjectButton(container, 'Action', w, 'action', onChange);

@@ -1,0 +1,122 @@
+/* ============================================================
+   HAven - SCADA / Industrial HMI Theme
+   ============================================================
+   Activated by setting "style": "scada" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "scada",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-scada which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Design intent: functional industrial control panel
+   aesthetic. No decorative effects, no glow, no animation.
+   Clean monospace typography, hard borders, and a subtle
+   engineering grid are the only embellishments. Clarity
+   and readability are the priority.
+
+   Font: uses Courier New for maximum compatibility.
+   Roboto Mono, Share Tech Mono, or B612 Mono (.woff2)
+   bundled into fonts/ would give a more refined look.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+
+.theme-scada {
+  font-family: 'Courier New', Courier, monospace !important;
+}
+
+
+/* ---- Engineering grid background -------------------------- */
+/* Subtle amber grid lines - the visual signature of
+   engineering and SCADA display software. 30px pitch
+   matches typical process mimic diagram grids.
+   Uses ::before so it renders behind all widget content.
+   No ::after overlay - SCADA runs on LCD, not CRT.           */
+
+.theme-scada::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 149, 0, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 149, 0, 0.045) 1px, transparent 1px);
+  background-size: 30px 30px;
+  z-index: 1;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+
+.theme-scada .widget-label {
+  font-family: 'Courier New', Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+/* Wide letter-spacing gives a seven-segment display feel.    */
+
+.theme-scada .widget-clock {
+  font-family: 'Courier New', Courier, monospace;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+/* Industrial panel switches: square corners, no radius.
+   The :active inset shadow simulates physical button
+   depression without transform or opacity change.            */
+
+.theme-scada .widget-button {
+  border-radius: 0 !important;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.theme-scada .widget-button .btn-label {
+  font-family: 'Courier New', Courier, monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.theme-scada .widget-button:active {
+  -webkit-box-shadow: inset 2px 2px 8px rgba(0, 0, 0, 0.7);
+          box-shadow: inset 2px 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* Full grayscale: industrial cameras are typically
+   monochrome. Contrast boost and slight darkening give a
+   functional security-monitor appearance.
+   The ::after adds an amber border frame to reinforce the
+   HMI panel aesthetic without any glow or blur effects.      */
+
+.theme-scada .widget-image {
+  -webkit-filter: grayscale(1) contrast(1.2) brightness(0.85);
+          filter: grayscale(1) contrast(1.2) brightness(0.85);
+}
+
+.theme-scada .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  -webkit-box-shadow: inset 0 0 0 2px rgba(255, 149, 0, 0.55);
+          box-shadow: inset 0 0 0 2px rgba(255, 149, 0, 0.55);
+  z-index: 10;
+}

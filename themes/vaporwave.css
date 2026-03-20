@@ -1,0 +1,169 @@
+/* ============================================================
+   HAven - Vaporwave Theme
+   ============================================================
+   Activated by setting "style": "vaporwave" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "vaporwave",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-vaporwave which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Design intent: retro 80s/90s synthwave aesthetic. Deep
+   purple sky fading through violet, pink, and coral at the
+   horizon. Neon pink and cyan glows on panels and widgets.
+   Wide italic sans-serif text with a soft bloom effect.
+
+   Colors: set primary to hot pink (#ff71ce) and use deep
+   purples for backgrounds. The ::before gradient provides the
+   sunset sky regardless of page background color.
+
+   Animation: none. The aesthetic is deliberately still -
+   the gradient and glow carry the mood without motion.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+
+.theme-vaporwave {
+  font-family: 'Century Gothic', 'Futura', 'Trebuchet MS',
+               'Gill Sans', Arial, sans-serif !important;
+  letter-spacing: 0.5px;
+}
+
+
+/* ---- Sunset gradient background --------------------------- */
+/* Classic vaporwave horizon: deep purple sky descending
+   through violet and pink to a coral/orange band at the
+   horizon line, then back to dark purple below.
+   z-index: -1 keeps it behind all widget content.            */
+
+.theme-vaporwave::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 50% 68%, rgba(255, 113, 206, 0.55) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 68%, rgba(0,  220, 255, 0.20) 0%, transparent 35%),
+    linear-gradient(to bottom,
+      #0d0521  0%,
+      #1a0a2e 28%,
+      #6b21a8 52%,
+      #c026a0 64%,
+      #f97316 76%,
+      #1a0a2e 100%
+    );
+}
+
+
+/* ---- Rectangle widget ------------------------------------- */
+/* Soft pink neon rim and inner glow give panels a neon-lit
+   acrylic feel without requiring semi-transparent colors.    */
+
+.theme-vaporwave .widget-rectangle {
+  border-radius: 6px !important;
+  -webkit-box-shadow:
+    0 0 0 1px rgba(255, 113, 206, 0.40),
+    0 0 24px rgba(255, 113, 206, 0.12),
+    inset 0 0 24px rgba(255, 113, 206, 0.05);
+  box-shadow:
+    0 0 0 1px rgba(255, 113, 206, 0.40),
+    0 0 24px rgba(255, 113, 206, 0.12),
+    inset 0 0 24px rgba(255, 113, 206, 0.05);
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+/* Cyan neon glow differentiates interactive buttons from
+   passive rectangle panels at a glance.                      */
+
+.theme-vaporwave .widget-button {
+  border-radius: 6px !important;
+  -webkit-box-shadow:
+    0 0 0 1px rgba(0, 220, 255, 0.45),
+    0 0 18px rgba(0, 220, 255, 0.18);
+  box-shadow:
+    0 0 0 1px rgba(0, 220, 255, 0.45),
+    0 0 18px rgba(0, 220, 255, 0.18);
+}
+
+.theme-vaporwave .widget-button:active {
+  opacity: 0.55;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+/* Italic with a soft pink bloom. The double-shadow creates
+   the characteristic vaporwave text glow.                    */
+
+.theme-vaporwave .widget-label {
+  font-style: italic;
+  text-shadow:
+    0 0 8px  rgba(255, 113, 206, 0.75),
+    0 0 20px rgba(255, 113, 206, 0.35);
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+/* Cyan glow on the clock to contrast with pink labels.
+   Wide letter-spacing reinforces the retro digital feel.     */
+
+.theme-vaporwave .widget-clock {
+  font-style: italic;
+  letter-spacing: 4px;
+  text-shadow:
+    0 0 8px  rgba(0, 220, 255, 0.85),
+    0 0 22px rgba(0, 220, 255, 0.40);
+}
+
+
+/* ---- Bar widget fill -------------------------------------- */
+/* Strong neon bloom matching the fill color.                 */
+
+.theme-vaporwave .widget-bar-fill {
+  -webkit-box-shadow:
+    0 0 10px currentColor,
+    0 0 22px rgba(255, 113, 206, 0.35);
+  box-shadow:
+    0 0 10px currentColor,
+    0 0 22px rgba(255, 113, 206, 0.35);
+}
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* Shift camera/image colours toward the purple-pink spectrum
+   to match the overall palette. The ::after overlays a pink
+   neon inset border consistent with the widget glow.         */
+
+.theme-vaporwave .widget-image {
+  border-radius: 6px !important;
+  -webkit-filter: saturate(1.2) sepia(0.35) hue-rotate(265deg) brightness(0.82);
+          filter: saturate(1.2) sepia(0.35) hue-rotate(265deg) brightness(0.82);
+}
+
+.theme-vaporwave .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  -webkit-box-shadow:
+    inset 0 0 0 1px rgba(255, 113, 206, 0.55),
+    inset 0 0 24px rgba(255, 113, 206, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 113, 206, 0.55),
+    inset 0 0 24px rgba(255, 113, 206, 0.18);
+  border-radius: inherit;
+  z-index: 10;
+}

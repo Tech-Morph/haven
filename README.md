@@ -38,6 +38,7 @@ Most dashboards flex and reflow to fit whatever screen they land on. HAven takes
 - **Camera support:** MJPEG, snapshot, poster, and direct URL preview modes; fullscreen HLS stream on tap
 - **Screensaver:** configurable idle timeout with optional bouncing text
 - **`haven_command` event bus:** HA automations can trigger navigation, wake, dim, or speech on the device
+- **Visual themes:** drop-in CSS theme files for scanlines, glow, fonts, and other visual effects without touching any dashboard config
 - **Visual designer:** drag-and-drop editor at `designer.html` with live preview, undo/redo, and entity search
 
 ![Preview](images/screenshot.png)
@@ -106,6 +107,9 @@ A graphical designer is available at `designer.html` on the same path. It requir
 **Planned**
 - [ ] HACS distribution: HAven does not fit HACS 2.x plugin or dashboard categories cleanly, as it is a standalone web app rather than a Lovelace resource. A companion `custom_components/haven` integration that registers HAven as a proper HA panel is the likely path forward.
 - [ ] Flow dots widget: animated dots along a path for energy/power direction visuals
+- [ ] Multi-action buttons: an `actions` array (alongside the existing single `action`) so one button tap can call multiple HA services in sequence. Each entry supports an optional `delay` (ms) for cases where a media player or other device needs a moment before accepting follow-up commands. Fully backwards compatible.
+- [ ] Actions on image widgets: add `action` support so a tap can trigger navigation, a service call, or an automation instead of only opening the fullscreen overlay.
+- [ ] Conditional actions: a `"type": "conditional"` action that picks which service to call based on the widget entity's current state or attribute. Uses the same condition syntax as overrides. Enables true toggle behaviour (mute/unmute, repeat mode cycling, etc.) from a single button without HA scripts or stacked widgets.
 
 **Implemented**
 - [x] All 13 widget types listed above

@@ -1,0 +1,106 @@
+/* ============================================================
+   HAven - Brutalist Theme
+   ============================================================
+   Activated by setting "style": "brutalist" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "brutalist",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-brutalist which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Design intent: raw, high-contrast, zero decoration.
+   The only light-mode theme in the set. No gradients, no
+   glow, no animations, no rounded corners anywhere.
+   Heavy borders and stark black-on-white contrast carry
+   the entire aesthetic. Clarity through bluntness.
+
+   Font: bold system sans-serif. No monospace, no display
+   fonts. The weight and contrast do the work.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+/* Bold sans-serif throughout. No decorative overlays.        */
+
+.theme-brutalist {
+  font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif !important;
+  font-weight: bold !important;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+
+.theme-brutalist .widget-label {
+  font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  font-weight: bold;
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+
+.theme-brutalist .widget-clock {
+  font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+/* Square corners, bold label. The :active state inverts the
+   entire button - white becomes black, black becomes white.
+   This is the most brutalist interaction pattern possible:
+   no animation, no opacity fade, just a hard flip.           */
+
+.theme-brutalist .widget-button {
+  border-radius: 0 !important;
+  font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.theme-brutalist .widget-button .btn-label {
+  font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.theme-brutalist .widget-button:active {
+  -webkit-filter: invert(1);
+          filter: invert(1);
+}
+
+
+/* ---- Bar widget fill -------------------------------------- */
+/* No glow. Clean solid fill with a hard right edge.          */
+
+.theme-brutalist .widget-bar-fill {
+  -webkit-box-shadow: 2px 0 0 0 currentColor;
+          box-shadow: 2px 0 0 0 currentColor;
+}
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* Harsh high-contrast black and white. No tint, no glow.
+   A solid black border frames the image like a newspaper
+   photograph cut from the page.                             */
+
+.theme-brutalist .widget-image {
+  -webkit-filter: grayscale(1) contrast(1.6) brightness(1.05);
+          filter: grayscale(1) contrast(1.6) brightness(1.05);
+}
+
+.theme-brutalist .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  -webkit-box-shadow: inset 0 0 0 3px #000000;
+          box-shadow: inset 0 0 0 3px #000000;
+  z-index: 10;
+}

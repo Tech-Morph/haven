@@ -313,6 +313,15 @@
     canvas.style.height = ch + 'px';
     canvas.style.background = resolveColor(config.theme.colors.background);
 
+    // Apply optional visual theme: adds CSS class to canvas and loads themes/{name}.css
+    if (config.theme && config.theme.style) {
+      canvas.classList.add('theme-' + config.theme.style);
+      var themeLink = document.createElement('link');
+      themeLink.rel  = 'stylesheet';
+      themeLink.href = 'themes/' + config.theme.style + '.css?v=' + HAVEN_VERSION;
+      document.head.appendChild(themeLink);
+    }
+
     scaleCanvas();
     window.addEventListener('resize', scaleCanvas);
     window.addEventListener('orientationchange', function () {
@@ -2018,6 +2027,8 @@
     var sceneLocked = !!w.locked;
     var controls = [];
     var pickerButton = null;
+    var pickerIconEl = null;
+    var pickerLabelEl = null;
     var pickerClose = null;
 
     function normalizeSceneOptions(raw) {
@@ -2032,10 +2043,11 @@
         }
         if (typeof it === 'object') {
           var v = (it.value !== undefined && it.value !== null) ? String(it.value) : '';
-          if (!v) continue;
+          if (!v && it.value !== false && it.value !== 0) continue;
           out.push({
             value: v,
-            label: (it.label !== undefined && it.label !== null) ? String(it.label) : v,
+            raw_value: it.value,
+            label: (it.label !== undefined && it.label !== null) ? String(it.label) : (it.icon ? null : v),
             icon: (it.icon !== undefined && it.icon !== null) ? String(it.icon) : ''
           });
         }
@@ -2067,7 +2079,7 @@
       if (!opt) return '';
       if (opt.icon && opt.label) return opt.icon + ' ' + opt.label;
       if (opt.icon) return opt.icon;
-      return opt.label;
+      return opt.label || '';
     }
 
     function applySceneStyle() {
@@ -2108,7 +2120,13 @@
       }
       if (pickerButton) {
         var opt = findOptionByValue(currentValue);
-        setContent(pickerButton, opt ? optionText(opt) : (w.placeholder || 'Select'));
+        if (opt && opt.icon) {
+          setContent(pickerIconEl, opt.icon);
+          pickerIconEl.style.display = '';
+        } else {
+          pickerIconEl.style.display = 'none';
+        }
+        setContent(pickerLabelEl, opt ? (opt.label || '') : (w.placeholder || 'Select'));
         pickerButton.disabled = sceneLocked;
         pickerButton.style.cursor = sceneLocked ? 'not-allowed' : 'pointer';
         pickerButton.style.opacity = sceneLocked ? '0.65' : '1';
@@ -2119,8 +2137,10 @@
       if (sceneLocked) return;
       var selected = String(value);
       if (w.action) {
-        // Always send the clicked option directly to avoid any stale-value races.
-        handleAction(w.action, undefined, { '$option': selected });
+        // Use raw_value to preserve original type (boolean, number) for service calls.
+        var optObj = findOptionByValue(value);
+        var rawToken = (optObj && optObj.raw_value !== undefined) ? optObj.raw_value : selected;
+        handleAction(w.action, undefined, { '$option': rawToken });
       }
       currentValue = selected;
       updateControls();
@@ -2134,11 +2154,16 @@
       wrap.style.top = '0';
       wrap.style.right = '0';
       wrap.style.bottom = '0';
+      var outerPad = w.padding !== undefined ? w.padding : 6;
+      var btnMargin = w.option_gap !== undefined ? w.option_gap : 4;
+      var btnHeight = Math.max(10, w.h - 2 * outerPad - 2 * btnMargin);
+
       wrap.style.display = 'flex';
       wrap.style.flexWrap = 'wrap';
       wrap.style.alignItems = 'center';
+      wrap.style.alignContent = 'center';
       wrap.style.justifyContent = 'center';
-      wrap.style.padding = (w.padding !== undefined ? w.padding : 6) + 'px';
+      wrap.style.padding = outerPad + 'px';
       el.appendChild(wrap);
 
       for (var i = 0; i < options.length; i++) {
@@ -2147,13 +2172,46 @@
           b.type = 'button';
           b.style.border = 'none';
           b.style.borderRadius = (w.option_radius !== undefined ? w.option_radius : 18) + 'px';
-          b.style.padding = (w.option_padding_y !== undefined ? w.option_padding_y : 8) + 'px ' +
-                            (w.option_padding_x !== undefined ? w.option_padding_x : 12) + 'px';
-          b.style.margin = (w.option_gap !== undefined ? w.option_gap : 4) + 'px';
-          b.style.fontSize = (w.option_size !== undefined ? w.option_size : 14) + 'px';
+          b.style.padding = '0 ' + (w.option_padding_x !== undefined ? w.option_padding_x : 12) + 'px';
+          b.style.margin = btnMargin + 'px';
+          b.style.height = btnHeight + 'px';
+          b.style.boxSizing = 'border-box';
           b.style.cursor = 'pointer';
           b.style.fontFamily = 'inherit';
-          setContent(b, optionText(opt));
+
+          var base = w.h;
+          var hasIcon  = !!opt.icon;
+          var hasLabel = !!opt.label;
+          var iconSize  = w.icon_size  !== undefined ? w.icon_size
+            : (hasIcon && hasLabel ? Math.round(base * 0.42) : Math.round(base * 0.60));
+          var labelSize = w.label_size !== undefined ? w.label_size
+            : (hasIcon && hasLabel ? Math.round(base * 0.14) : Math.round(base * 0.20));
+
+          if (opt.icon && opt.label) {
+            // Separate icon + label elements stacked vertically
+            b.style.display        = 'flex';
+            b.style.flexDirection  = 'column';
+            b.style.alignItems     = 'center';
+            b.style.justifyContent = 'center';
+            b.style.gap            = (w.option_icon_label_gap !== undefined ? w.option_icon_label_gap : 3) + 'px';
+            var iconSpan = document.createElement('span');
+            setContent(iconSpan, opt.icon);
+            iconSpan.style.fontSize   = iconSize + 'px';
+            iconSpan.style.lineHeight = '1';
+            b.appendChild(iconSpan);
+            var labelSpan = document.createElement('span');
+            setContent(labelSpan, opt.label);
+            labelSpan.style.fontSize   = labelSize + 'px';
+            labelSpan.style.lineHeight = '1.2';
+            b.appendChild(labelSpan);
+          } else {
+            b.style.display        = 'flex';
+            b.style.alignItems     = 'center';
+            b.style.justifyContent = 'center';
+            b.style.fontSize = (opt.icon ? iconSize : labelSize) + 'px';
+            setContent(b, optionText(opt));
+          }
+
           b.addEventListener('click', function() { selectOption(opt.value); });
           wrap.appendChild(b);
           controls.push({ kind: 'button', el: b, option: opt });
@@ -2172,7 +2230,7 @@
       select.style.borderRadius = (w.option_radius !== undefined ? w.option_radius : 8) + 'px';
       select.style.background = resolveColor(w.option_background || 'surface2');
       select.style.color = resolveColor(w.option_color || 'text');
-      select.style.fontSize = (w.option_size !== undefined ? w.option_size : 16) + 'px';
+      select.style.fontSize = (w.label_size !== undefined ? w.label_size : 16) + 'px';
       select.style.padding = '0 8px';
       select.style.fontFamily = 'inherit';
       for (var i = 0; i < options.length; i++) {
@@ -2187,20 +2245,42 @@
     }
 
     function buildPicker() {
+      var pad = w.padding !== undefined ? w.padding : 0;
       pickerButton = document.createElement('button');
       pickerButton.type = 'button';
-      pickerButton.style.position = 'absolute';
-      pickerButton.style.left = (w.padding !== undefined ? w.padding : 6) + 'px';
-      pickerButton.style.top = (w.padding !== undefined ? w.padding : 6) + 'px';
-      pickerButton.style.width = Math.max(10, w.w - 2 * (w.padding !== undefined ? w.padding : 6)) + 'px';
-      pickerButton.style.height = Math.max(10, w.h - 2 * (w.padding !== undefined ? w.padding : 6)) + 'px';
-      pickerButton.style.border = 'none';
-      pickerButton.style.borderRadius = (w.option_radius !== undefined ? w.option_radius : 20) + 'px';
-      pickerButton.style.background = resolveColor(w.option_background || 'surface2');
-      pickerButton.style.color = resolveColor(w.option_color || 'text');
-      pickerButton.style.fontSize = (w.option_size !== undefined ? w.option_size : 16) + 'px';
-      pickerButton.style.cursor = 'pointer';
-      pickerButton.style.fontFamily = 'inherit';
+      pickerButton.style.position        = 'absolute';
+      pickerButton.style.left            = pad + 'px';
+      pickerButton.style.top             = pad + 'px';
+      pickerButton.style.width           = Math.max(10, w.w - 2 * pad) + 'px';
+      pickerButton.style.height          = Math.max(10, w.h - 2 * pad) + 'px';
+      pickerButton.style.border          = 'none';
+      pickerButton.style.padding         = '0';
+      pickerButton.style.borderRadius    = (w.radius !== undefined ? w.radius : (w.option_radius !== undefined ? w.option_radius : 8)) + 'px';
+      pickerButton.style.background      = resolveColor(w.background || w.option_background || 'surface2');
+      pickerButton.style.cursor          = 'pointer';
+      pickerButton.style.fontFamily      = 'inherit';
+      pickerButton.style.display         = 'flex';
+      pickerButton.style.flexDirection   = 'column';
+      pickerButton.style.alignItems      = 'center';
+      pickerButton.style.justifyContent  = 'center';
+      pickerButton.style.gap             = (w.gap !== undefined ? w.gap : 4) + 'px';
+
+      var base = Math.min(w.w - 2 * pad, w.h - 2 * pad);
+      var iconSize  = w.icon_size  !== undefined ? w.icon_size  : Math.round(base * 0.42);
+      var labelSize = w.label_size !== undefined ? w.label_size : Math.round(base * 0.14);
+
+      pickerIconEl = document.createElement('div');
+      pickerIconEl.style.fontSize   = iconSize + 'px';
+      pickerIconEl.style.lineHeight = '1';
+      pickerIconEl.style.color      = resolveColor(w.icon_color || w.option_color || 'text');
+
+      pickerLabelEl = document.createElement('div');
+      pickerLabelEl.style.fontSize   = labelSize + 'px';
+      pickerLabelEl.style.lineHeight = '1.2';
+      pickerLabelEl.style.color      = resolveColor(w.label_color || w.option_color || 'text_dim');
+
+      pickerButton.appendChild(pickerIconEl);
+      pickerButton.appendChild(pickerLabelEl);
       pickerButton.addEventListener('click', function() { openPickerModal(); });
       el.appendChild(pickerButton);
     }
@@ -2238,7 +2318,7 @@
           item.style.borderRadius = (w.option_radius !== undefined ? w.option_radius : 10) + 'px';
           item.style.padding = '10px 12px';
           item.style.marginBottom = '6px';
-          item.style.fontSize = (w.option_size !== undefined ? w.option_size : 15) + 'px';
+          item.style.fontSize = (w.label_size !== undefined ? w.label_size : 15) + 'px';
           item.style.cursor = 'pointer';
           item.style.fontFamily = 'inherit';
           setContent(item, optionText(opt));
@@ -2423,25 +2503,40 @@
 
     applyButtonLockState(buttonLocked);
 
+    var buttonStateCache  = w.entity  ? (entityStates[w.entity]  || null) : null;
+    var buttonHasPageSrc  = hasOverrideSource(w, 'page');
+
+    function updateButtonOverrides(state) {
+      var ovr = resolveOverrides(w, state) || {};
+      applyButtonLockState((ovr.locked !== undefined) ? !!ovr.locked : !!w.locked);
+      el.style.background = resolveColor(ovr.background !== undefined ? ovr.background : (w.background || 'surface2'));
+      iconEl.style.color  = resolveColor(ovr.icon_color  !== undefined ? ovr.icon_color  : (w.icon_color  || 'text'));
+      labelEl.style.color = resolveColor(ovr.label_color !== undefined ? ovr.label_color : (w.label_color || 'text_dim'));
+      if (ovr.opacity      !== undefined) el.style.opacity     = ovr.opacity;
+      if (ovr.border_color !== undefined) el.style.borderColor = resolveColor(ovr.border_color);
+      if (ovr.border_width !== undefined) {
+        el.style.borderWidth = ovr.border_width + 'px';
+        el.style.borderStyle = 'solid';
+        el.style.boxSizing   = 'border-box';
+      }
+      var icon = (ovr.icon !== undefined) ? ovr.icon : (baseIcon || '');
+      setButtonIcon(icon);
+      var labelText = (ovr.label !== undefined) ? ovr.label : (w.label || '');
+      setButtonLabel(labelText, state);
+    }
+
     if (w.entity) {
       registerEntityCallback(w.entity, function (state) {
-        var ovr = resolveOverrides(w, state) || {};
-        applyButtonLockState((ovr.locked !== undefined) ? !!ovr.locked : !!w.locked);
-        el.style.background = resolveColor(ovr.background !== undefined ? ovr.background : (w.background || 'surface2'));
-        iconEl.style.color  = resolveColor(ovr.icon_color  !== undefined ? ovr.icon_color  : (w.icon_color  || 'text'));
-        labelEl.style.color = resolveColor(ovr.label_color !== undefined ? ovr.label_color : (w.label_color || 'text_dim'));
-        if (ovr.opacity      !== undefined) el.style.opacity     = ovr.opacity;
-        if (ovr.border_color !== undefined) el.style.borderColor = resolveColor(ovr.border_color);
-        if (ovr.border_width !== undefined) {
-          el.style.borderWidth = ovr.border_width + 'px';
-          el.style.borderStyle = 'solid';
-          el.style.boxSizing   = 'border-box';
-        }
-        var icon = (ovr.icon !== undefined) ? ovr.icon : (baseIcon || '');
-        setButtonIcon(icon);
-        var labelText = (ovr.label !== undefined) ? ovr.label : (w.label || '');
-        setButtonLabel(labelText, state);
+        buttonStateCache = state;
+        updateButtonOverrides(buttonStateCache);
       });
+    }
+
+    if (buttonHasPageSrc) {
+      registerEntityCallback(INTERNAL_PAGE_ENTITY, function () {
+        updateButtonOverrides(buttonStateCache);
+      });
+      updateButtonOverrides(buttonStateCache);
     }
 
     if (w.action) {
@@ -2712,6 +2807,7 @@
     el.style.borderRadius = radiusPx;
     el.style.background   = w.background ? resolveColor(w.background) : 'transparent';
     el.style.cursor       = w.fullscreen_on_tap ? 'pointer' : 'default';
+    if (!w.fullscreen_on_tap && !w.action) { el.style.pointerEvents = 'none'; }
 
     var img = document.createElement('img');
     img.style.width     = '100%';
@@ -5083,7 +5179,7 @@
 
     var color      = resolveColor(w.color       || 'primary');
     var todayColor = resolveColor(w.today_color || 'warning');
-    var trackColor = resolveColor('surface2');
+    var trackColor = resolveColor(w.track_color !== undefined ? w.track_color : 'surface2');
     var textColor  = resolveColor(w.label_color || 'text_muted');
 
     // Take the last `count` entries (today/current period is always the last entry)

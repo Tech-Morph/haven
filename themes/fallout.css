@@ -1,0 +1,215 @@
+/* ============================================================
+   HAven - Fallout / Pip-Boy Theme
+   ============================================================
+   Activated by setting "style": "fallout" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "fallout",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-fallout which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Font: Uses system Courier New for maximum compatibility.
+   For a more authentic look, drop a terminal .woff2 into
+   fonts/ (e.g. VT323, Share Tech Mono) and add a @font-face
+   rule at the top of this file, then update the font-family
+   values below to reference it.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+
+.theme-fallout {
+  font-family: 'Courier New', Courier, monospace !important;
+}
+
+
+/* ---- CRT vignette ----------------------------------------- */
+/* Darkens canvas edges to simulate a curved CRT bezel.
+   Uses ::before so it renders behind widget content.         */
+
+.theme-fallout::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.65) 100%
+  );
+  z-index: 1;
+}
+
+
+/* ---- Scanlines overlay ------------------------------------ */
+/* Horizontal scanlines across the whole canvas.
+   Uses ::after so it renders above widget content.
+   pointer-events: none ensures it never blocks taps/clicks.
+   z-index 5000: above widgets and page-0 overlay (z:10),
+   below screensaver overlay (z:10000).                       */
+
+.theme-fallout::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.13) 3px,
+    rgba(0, 0, 0, 0.13) 4px
+  );
+  z-index: 5000;
+}
+
+
+/* ---- Screen flicker animation ----------------------------- */
+/* Very subtle opacity cycling that mimics phosphor instability.
+   Irregular timing feels more authentic than a linear cycle.  */
+
+@-webkit-keyframes pipboyFlicker {
+  0%,  18%,  20%,  22%,  24%,  53%,  55%,  100% { opacity: 1;    }
+  19%,  21%,  23%,  54%                          { opacity: 0.965; }
+}
+
+@keyframes pipboyFlicker {
+  0%,  18%,  20%,  22%,  24%,  53%,  55%,  100% { opacity: 1;    }
+  19%,  21%,  23%,  54%                          { opacity: 0.965; }
+}
+
+.theme-fallout {
+  -webkit-animation: pipboyFlicker 9s ease-in-out infinite;
+          animation: pipboyFlicker 9s ease-in-out infinite;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+
+.theme-fallout .widget-label {
+  font-family: 'Courier New', Courier, monospace;
+  text-shadow: 0 0 7px currentColor;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+
+.theme-fallout .widget-clock {
+  font-family: 'Courier New', Courier, monospace;
+  text-shadow: 0 0 8px currentColor;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+
+.theme-fallout .widget-button {
+  border-radius: 0 !important;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.theme-fallout .widget-button .btn-label {
+  font-family: 'Courier New', Courier, monospace;
+  text-shadow: 0 0 6px currentColor;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.theme-fallout .widget-button .btn-icon {
+  text-shadow: 0 0 12px currentColor;
+}
+
+.theme-fallout .widget-button:active {
+  opacity: 0.55;
+}
+
+
+/* ---- Bar widget fill -------------------------------------- */
+/* Adds a soft glow trail on the right edge of the fill bar.  */
+
+.theme-fallout .widget-bar-fill {
+  -webkit-box-shadow: 3px 0 10px currentColor, 0 0 4px currentColor;
+          box-shadow: 3px 0 10px currentColor, 0 0 4px currentColor;
+}
+
+
+/* ---- Rectangle widget ------------------------------------ */
+/* When a border is configured, adds a matching outer glow.   */
+
+.theme-fallout .widget-rectangle {
+  -webkit-box-shadow: 0 0 8px rgba(74, 246, 38, 0.15);
+          box-shadow: 0 0 8px rgba(74, 246, 38, 0.15);
+}
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* CSS filter chain converts colour images/feeds to phosphor
+   green:
+     grayscale(1)       strips all source colour
+     sepia(1)           adds a warm base tone for hue-rotate
+     hue-rotate(75deg)  shifts sepia (~30deg) into green (~105deg)
+     saturate(2.5)      boosts green intensity toward phosphor
+     brightness(0.8)    dims to a worn CRT screen level
+
+   The filter applies to the whole widget container, so any
+   overlay labels, play buttons, and camera UI elements inside
+   the widget all take on the same greenscale look.
+
+   The ::after pseudo-element adds a denser scanline pass and
+   an inset edge glow, simulating a small CRT sub-screen.
+   It renders above the image but is unaffected by the filter
+   since it is outside the filtered element's content.         */
+
+.theme-fallout .widget-image {
+  -webkit-filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(2.5) brightness(0.8);
+          filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(2.5) brightness(0.8);
+}
+
+.theme-fallout .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  /* Denser scanlines than the canvas-wide pass, giving the
+     feel of a small CRT within the dashboard.               */
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.2) 2px,
+    rgba(0, 0, 0, 0.2) 3px
+  );
+  /* Inset green glow frames the image like a Pip-Boy screen. */
+  -webkit-box-shadow: inset 0 0 18px rgba(74, 246, 38, 0.35);
+          box-shadow: inset 0 0 18px rgba(74, 246, 38, 0.35);
+  z-index: 10;
+}
+
+
+/* ---- Page navigation dots --------------------------------- */
+/* Styled to match the phosphor green palette.
+   Note: #page-nav is outside #canvas, so these selectors use
+   a general class approach. If the nav dots look unstyled,
+   this is expected until a body-class mechanism is added.     */
+
+.theme-fallout ~ * #page-nav .page-dot,
+#page-nav .page-dot {
+  /* overridden below only when a sibling .theme-fallout exists */
+}

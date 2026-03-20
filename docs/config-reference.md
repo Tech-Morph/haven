@@ -9,6 +9,7 @@ HAven device configs are JSON files stored in the `devices/` folder. Each file d
 - [Top-Level Structure](#top-level-structure)
 - [device block](#device-block)
 - [theme block](#theme-block)
+- [Visual Themes](#visual-themes)
 - [pages array](#pages-array)
 - [Page 0 - Persistent Overlay](#page-0---persistent-overlay)
 - [Page Background Images](#page-background-images)
@@ -144,6 +145,7 @@ Color tokens are named values referenced throughout widget configs. Any widget p
 
 ```json
 "theme": {
+  "style": "fallout",
   "colors": {
     "background":    "#161C23",
     "surface":       "#272E36",
@@ -159,6 +161,12 @@ Color tokens are named values referenced throughout widget configs. Any widget p
   "font_size": 16
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `style` | Optional visual theme name. Loads `themes/{name}.css` and applies a scoped CSS class to the canvas. See [Visual Themes](#visual-themes). |
+| `colors` | Named color tokens referenced by widgets. See standard tokens below. |
+| `font_size` | Base font size in pixels. Individual widgets can override with their own `font_size`. |
 
 ### Standard tokens
 
@@ -194,6 +202,68 @@ Add any extra tokens to the `colors` block and reference them anywhere a color i
 ### font_size
 
 `theme.font_size` sets the base font size in pixels. Individual widgets can override this with their own `font_size` property.
+
+---
+
+## Visual Themes
+
+Visual themes add CSS effects on top of the standard color palette: custom fonts, scanlines, glow, animations, and other purely decorative styles. They are completely optional and have zero effect on any dashboard that does not opt in.
+
+Set `theme.style` to the name of a theme to activate it:
+
+```json
+"theme": {
+  "style": "fallout",
+  "colors": { ... }
+}
+```
+
+When HAven loads, it adds the class `theme-{name}` to the canvas element and injects `themes/{name}.css` into the page. All CSS rules in a theme file must be scoped under `.theme-{name}` so they only apply to that canvas and cannot affect other dashboards open in the same browser.
+
+### Built-in themes
+
+| Name | Description |
+|------|-------------|
+| `fallout` | Pip-Boy terminal aesthetic. Phosphor green on near-black, CRT scanlines, vignette, monospace font, subtle screen flicker. |
+| `cyberpunk` | Cyberpunk 2077 aesthetic. Neon yellow on dark blue-black, chromatic aberration on text, diagonal corner cuts on buttons, rolling CRT band effect. |
+| `scada` | Industrial HMI aesthetic. Amber on dark charcoal, monospace font, engineering grid background, square corners, no glow or animation. Cameras rendered in grayscale with an amber border frame. |
+| `brutalist` | High-contrast light-mode aesthetic. Black on white, heavy 3px borders, bold sans-serif, zero decoration. The only light-mode theme. Active buttons invert completely (white becomes black). Cameras rendered in harsh high-contrast black and white. |
+| `glass` | Glassmorphism aesthetic. Frosted semi-transparent panels floating over a colourful radial gradient background. Requires rgba() surface colors (e.g. rgba(255,255,255,0.10)) to enable the backdrop blur. Cameras rendered with slight desaturation and a white inset rim. |
+| `vaporwave` | Retro 80s synthwave aesthetic. Deep purple sky fading through violet, pink, and coral at the horizon. Hot pink neon glow on panels, cyan neon on buttons. Italic wide sans-serif text with a bloom effect. Cameras tinted toward the purple-pink spectrum. |
+| `luxury` | High-end residential aesthetic. Near-black surfaces with antique gold (#c9a84c) accents. Thin 1px gold borders on every panel and button. Palatino serif typography with spaced uppercase headers. No animations. Cameras warmed with subtle sepia and a thin gold inset border. |
+
+Demo configs are included in `devices/fallout-demo.json`, `devices/cyberpunk-demo.json`, `devices/scada-demo.json`, `devices/brutalist-demo.json`, `devices/glass-demo.json`, `devices/vaporwave-demo.json`, and `devices/luxury-demo.json`.
+
+### Creating a custom theme
+
+1. Create `themes/mytheme.css` in the `haven/` folder
+2. Scope every rule under `.theme-mytheme`
+3. Set `"style": "mytheme"` in your device config's `theme` block
+
+```css
+/* themes/mytheme.css */
+
+.theme-mytheme {
+  font-family: 'Your Font', monospace;
+}
+
+.theme-mytheme .widget-label {
+  text-shadow: 0 0 6px currentColor;
+}
+
+.theme-mytheme .widget-button {
+  border-radius: 0 !important;
+}
+```
+
+### Animation notes
+
+Animations in theme CSS files must not apply `transform` or `background` to the `#canvas` element (the element that receives the `.theme-{name}` class). HAven sets `transform: scale()` on the canvas element inline for screen scaling, and animating those properties on the element itself will cause scaling to break.
+
+Safe approaches:
+- Animate `opacity` on the canvas element (subtle only, keep the dip under 5%)
+- Animate `transform`, `opacity`, or any property on `::before` or `::after` pseudo-elements
+- Animate any property on widget child elements
 
 ---
 

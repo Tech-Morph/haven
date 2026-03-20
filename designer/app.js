@@ -109,6 +109,96 @@ var themeModalSaveBtn     = document.getElementById('themeModalSaveBtn');
 var tmFontSize            = document.getElementById('tmFontSize');
 var tmColorRows           = document.getElementById('tmColorRows');
 var tmAddColorBtn         = document.getElementById('tmAddColorBtn');
+var tmApplyPresetBtn      = document.getElementById('tmApplyPresetBtn');
+
+// Color palettes that match each bundled theme CSS file.
+// Keys must match the style name (themes/{name}.css).
+var THEME_PRESETS = {
+  fallout: {
+    background:    '#080C08',
+    surface:       '#0D1A0D',
+    surface2:      '#142014',
+    primary:       '#4AF626',
+    warning:       '#C8A020',
+    danger:        '#C02020',
+    text:          '#4AF626',
+    text_dim:      '#38C01A',
+    text_muted:    '#267010',
+    icon_inactive: '#1A4A10'
+  },
+  cyberpunk: {
+    background:    '#0A080F',
+    surface:       '#130E1E',
+    surface2:      '#1D1530',
+    primary:       '#FCEE09',
+    warning:       '#FF6B00',
+    danger:        '#FF003C',
+    text:          '#EDEDED',
+    text_dim:      '#AAAAAA',
+    text_muted:    '#65607A',
+    icon_inactive: '#3D3850'
+  },
+  scada: {
+    background:    '#151515',
+    surface:       '#1E1E1E',
+    surface2:      '#282828',
+    primary:       '#FF9500',
+    warning:       '#FFCC00',
+    danger:        '#FF2222',
+    text:          '#DDDDDD',
+    text_dim:      '#999999',
+    text_muted:    '#555555',
+    icon_inactive: '#383838'
+  },
+  brutalist: {
+    background:    '#EBEBEB',
+    surface:       '#FFFFFF',
+    surface2:      '#D8D8D8',
+    primary:       '#000000',
+    warning:       '#FF6600',
+    danger:        '#FF0000',
+    text:          '#000000',
+    text_dim:      '#333333',
+    text_muted:    '#888888',
+    icon_inactive: '#BBBBBB'
+  },
+  glass: {
+    background:    '#1a1035',
+    surface:       'rgba(255, 255, 255, 0.10)',
+    surface2:      'rgba(255, 255, 255, 0.20)',
+    primary:       '#a78bfa',
+    warning:       '#fb923c',
+    danger:        '#f87171',
+    text:          '#ffffff',
+    text_dim:      '#e2e8f0',
+    text_muted:    '#94a3b8',
+    icon_inactive: '#475569'
+  },
+  vaporwave: {
+    background:    '#0d0521',
+    surface:       '#1e0a3c',
+    surface2:      '#2d1255',
+    primary:       '#ff71ce',
+    warning:       '#f97316',
+    danger:        '#ff3355',
+    text:          '#ffffff',
+    text_dim:      '#f0d0ff',
+    text_muted:    '#9b72cf',
+    icon_inactive: '#3d2468'
+  },
+  luxury: {
+    background:    '#0a0a0a',
+    surface:       '#111111',
+    surface2:      '#1a1a1a',
+    primary:       '#c9a84c',
+    warning:       '#e8c040',
+    danger:        '#cc3333',
+    text:          '#f5f0e8',
+    text_dim:      '#d4c9a8',
+    text_muted:    '#8c7a5c',
+    icon_inactive: '#3d3428'
+  }
+};
 // Entity search modal elements
 var entitySearchModal      = document.getElementById('entitySearchModal');
 var entitySearchCloseBtn   = document.getElementById('entitySearchCloseBtn');
@@ -235,6 +325,24 @@ function init() {
   });
   themeModal.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeThemeModal();
+  });
+  document.getElementById('tmStyle').addEventListener('input', function () {
+    var style = this.value.trim().toLowerCase();
+    tmApplyPresetBtn.style.display = THEME_PRESETS[style] ? 'inline-block' : 'none';
+  });
+  tmApplyPresetBtn.addEventListener('click', function () {
+    var style = document.getElementById('tmStyle').value.trim().toLowerCase();
+    var preset = THEME_PRESETS[style];
+    if (!preset) return;
+    showConfirm(
+      'Apply Preset Colors',
+      'Replace current color tokens with the ' + style + ' preset palette?',
+      'Apply',
+      false
+    ).then(function (ok) {
+      if (!ok) return;
+      buildThemeColors(preset);
+    });
   });
   entitySearchCloseBtn.addEventListener('click', closeEntitySearch);
   entitySearchRefreshBtn.addEventListener('click', function () {
@@ -1228,6 +1336,64 @@ async function pickBackgroundImage(page, inputEl, thumbEl) {
   }
 }
 
+export async function pickWidgetImage(w, inputEl, thumbEl, onChange) {
+  if (!window.showOpenFilePicker) {
+    setStatus('File picker not supported — enter the path manually', true);
+    return;
+  }
+  try {
+    var handles = await window.showOpenFilePicker({
+      types: [{ description: 'Images', accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'] } }],
+      multiple: false
+    });
+    if (!handles || !handles.length) return;
+    var fileHandle = handles[0];
+    var file = await fileHandle.getFile();
+
+    if (!imagesDirHandle) {
+      if (!window.showDirectoryPicker) {
+        onChange('url', 'images/' + file.name);
+        inputEl.value = 'images/' + file.name;
+        pushHistory();
+        setStatus('Set to images/' + file.name + ' — copy the file to your images/ folder manually', true);
+        return;
+      }
+      setStatus('Select your haven images/ folder…', false);
+      try {
+        imagesDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      } catch (err) {
+        setStatus('', false);
+        if (err.name !== 'AbortError') setStatus('Could not access images folder: ' + err.message, true);
+        return;
+      }
+    }
+
+    try {
+      var destHandle = await imagesDirHandle.getFileHandle(file.name, { create: true });
+      var writable   = await destHandle.createWritable();
+      await writable.write(await file.arrayBuffer());
+      await writable.close();
+    } catch (err) {
+      setStatus('Could not write image: ' + err.message, true);
+      return;
+    }
+
+    var path = 'images/' + file.name;
+    onChange('url', path);
+    inputEl.value = path;
+    pushHistory();
+
+    var url = URL.createObjectURL(file);
+    thumbEl.src = url;
+    thumbEl.style.display = 'block';
+    thumbEl.onload = function () { URL.revokeObjectURL(url); };
+
+    setStatus('Copied to images/' + file.name, true);
+  } catch (err) {
+    if (err.name !== 'AbortError') setStatus('Upload failed: ' + err.message, true);
+  }
+}
+
 function addOverlayPage() {
   if (!config) return;
   config.pages.push({ id: 0, label: 'Overlay', widgets: [] });
@@ -1503,6 +1669,9 @@ function readThemeColors() {
 function openThemeModal() {
   if (!config) return;
   var theme = config.theme || {};
+  var style = theme.style || '';
+  document.getElementById('tmStyle').value = style;
+  tmApplyPresetBtn.style.display = THEME_PRESETS[style.toLowerCase()] ? 'inline-block' : 'none';
   tmFontSize.value = theme.font_size !== undefined ? theme.font_size : 16;
   buildThemeColors(theme.colors || {});
   themeModal.classList.add('open');
@@ -1515,6 +1684,12 @@ function closeThemeModal() {
 
 function saveTheme() {
   if (!config.theme) config.theme = {};
+  var style = (document.getElementById('tmStyle').value || '').trim();
+  if (style) {
+    config.theme.style = style;
+  } else {
+    delete config.theme.style;
+  }
   var fontSize = parseInt(tmFontSize.value, 10);
   config.theme.font_size = (fontSize > 0) ? fontSize : 16;
   config.theme.colors = readThemeColors();

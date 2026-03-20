@@ -1,0 +1,152 @@
+/* ============================================================
+   HAven - Luxury Theme
+   ============================================================
+   Activated by setting "style": "luxury" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "luxury",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-luxury which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Design intent: high-end residential control panel.
+   Near-black surfaces with antique gold (#c9a84c) accents.
+   Thin 1px gold borders on every panel and button.
+   Palatino or Georgia serif for an editorial feel.
+   Very subtle warm vignette at the base of the canvas.
+
+   No animations. Luxury is restraint. The gold and the
+   whitespace do all the work.
+
+   Colors: set background to near-black (#0a0a0a), surface
+   to #111111, surface2 to #1a1a1a, primary to #c9a84c.
+   Text should be warm cream (#f5f0e8) rather than pure white.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+
+.theme-luxury {
+  font-family: 'Palatino Linotype', Palatino, Georgia,
+               'Times New Roman', serif !important;
+  letter-spacing: 1px;
+}
+
+
+/* ---- Warm base vignette ----------------------------------- */
+/* A barely-visible gold glow at the bottom of the canvas
+   and a faint top reflection give the near-black background
+   a sense of depth without competing with widget content.    */
+
+.theme-luxury::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 50% 115%, rgba(201, 168, 76, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% -15%, rgba(201, 168, 76, 0.05) 0%, transparent 50%);
+}
+
+
+/* ---- Rectangle widget ------------------------------------- */
+/* A single 1px gold rim and the faintest inner warmth.
+   Minimal border-radius: luxury interiors favour clean
+   lines over softly rounded corners.                         */
+
+.theme-luxury .widget-rectangle {
+  border-radius: 3px !important;
+  -webkit-box-shadow:
+    0 0 0 1px rgba(201, 168, 76, 0.50),
+    inset 0 0 40px rgba(201, 168, 76, 0.03);
+  box-shadow:
+    0 0 0 1px rgba(201, 168, 76, 0.50),
+    inset 0 0 40px rgba(201, 168, 76, 0.03);
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+/* Slightly brighter gold rim than rectangles, plus a deep
+   drop shadow to lift the button off the surface.            */
+
+.theme-luxury .widget-button {
+  border-radius: 3px !important;
+  -webkit-box-shadow:
+    0 0 0 1px rgba(201, 168, 76, 0.65),
+    0 6px 24px rgba(0, 0, 0, 0.50);
+  box-shadow:
+    0 0 0 1px rgba(201, 168, 76, 0.65),
+    0 6px 24px rgba(0, 0, 0, 0.50);
+}
+
+.theme-luxury .widget-button:active {
+  opacity: 0.55;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+/* Spaced characters and a faint gold bloom.                  */
+
+.theme-luxury .widget-label {
+  letter-spacing: 1px;
+  text-shadow: 0 1px 10px rgba(201, 168, 76, 0.28);
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+/* Wide letter-spacing reads like an engraved clock face.
+   Gold glow is slightly stronger than on labels.             */
+
+.theme-luxury .widget-clock {
+  letter-spacing: 6px;
+  text-shadow:
+    0 0 10px rgba(201, 168, 76, 0.55),
+    0 0 30px rgba(201, 168, 76, 0.20);
+}
+
+
+/* ---- Bar widget fill -------------------------------------- */
+/* Restrained gold shimmer on the filled portion.             */
+
+.theme-luxury .widget-bar-fill {
+  -webkit-box-shadow: 0 0 8px rgba(201, 168, 76, 0.65);
+          box-shadow: 0 0 8px rgba(201, 168, 76, 0.65);
+}
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* Slight sepia warmth keeps camera feeds from looking cold
+   against the gold palette. The ::after overlays a thin
+   gold inset border and a dark inner vignette.               */
+
+.theme-luxury .widget-image {
+  border-radius: 3px !important;
+  -webkit-filter: sepia(0.25) saturate(0.88) brightness(0.86);
+          filter: sepia(0.25) saturate(0.88) brightness(0.86);
+}
+
+.theme-luxury .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  -webkit-box-shadow:
+    inset 0 0 0 1px rgba(201, 168, 76, 0.60),
+    inset 0 0 28px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 0 0 1px rgba(201, 168, 76, 0.60),
+    inset 0 0 28px rgba(0, 0, 0, 0.35);
+  border-radius: inherit;
+  z-index: 10;
+}

@@ -1,0 +1,225 @@
+/* ============================================================
+   HAven - Cyberpunk 2077 Theme
+   ============================================================
+   Activated by setting "style": "cyberpunk" in your device
+   config's theme block:
+
+     "theme": {
+       "style": "cyberpunk",
+       "colors": { ... }
+     }
+
+   Every rule here is scoped under .theme-cyberpunk which is
+   applied only to the canvas div of devices that opt in.
+   Zero effect on any dashboard without that config key.
+
+   Font: Uses Impact (system) for a bold condensed feel.
+   For a more authentic look, bundle Orbitron or Rajdhani
+   (.woff2) into fonts/ and add an @font-face rule here.
+   ============================================================ */
+
+
+/* ---- Canvas base ------------------------------------------ */
+
+.theme-cyberpunk {
+  font-family: Impact, 'Arial Narrow', Arial, sans-serif !important;
+}
+
+
+/* ---- CRT rolling band ------------------------------------- */
+/* A soft-edged band of light that sweeps from top to bottom,
+   mimicking a camera filming a CRT screen.
+
+   Uses ::before (renders behind widget content) with a child
+   translateY animation. A child transform cannot interfere
+   with the parent #canvas transform:scale() that JS sets for
+   screen scaling - this is the key reason it is safe where
+   animating the canvas element itself was not.
+
+   The element spans 100% of canvas height. The bright spot is
+   a gradient centred at 50% of the element. translateY(-100%)
+   starts it fully above the canvas; translateY(+100%) ends it
+   fully below. One complete pass per cycle.                   */
+
+@-webkit-keyframes cpCRTRoll {
+  from { -webkit-transform: translateY(-100%); transform: translateY(-100%); }
+  to   { -webkit-transform: translateY( 100%); transform: translateY( 100%); }
+}
+
+@keyframes cpCRTRoll {
+  from { -webkit-transform: translateY(-100%); transform: translateY(-100%); }
+  to   { -webkit-transform: translateY( 100%); transform: translateY( 100%); }
+}
+
+.theme-cyberpunk::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent               0%,
+    transparent              44%,
+    rgba(252, 238, 9, 0.055) 48%,
+    rgba(252, 238, 9, 0.08)  50%,
+    rgba(252, 238, 9, 0.055) 52%,
+    transparent              56%,
+    transparent             100%
+  );
+  z-index: 2;
+  -webkit-transform: translateY(-100%);
+          transform: translateY(-100%);
+  -webkit-animation: cpCRTRoll 10s linear infinite;
+          animation: cpCRTRoll 10s linear infinite;
+}
+
+
+
+/* ---- Scanline overlay ------------------------------------- */
+/* Static - no animation. Lighter than Fallout since CP2077
+   is a digital display, not a phosphor CRT.                  */
+
+.theme-cyberpunk::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.07) 3px,
+    rgba(0, 0, 0, 0.07) 4px
+  );
+  z-index: 5000;
+}
+
+
+/* ---- Label widget ----------------------------------------- */
+/* Chromatic aberration via text-shadow: the red/cyan offset
+   on opposite sides creates the classic RGB colour split.     */
+
+.theme-cyberpunk .widget-label {
+  font-family: Impact, 'Arial Narrow', Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow:
+    -2px 0 rgba(255, 0, 60,  0.55),
+     2px 0 rgba(0, 240, 255, 0.55);
+}
+
+
+/* ---- Clock widget ----------------------------------------- */
+
+.theme-cyberpunk .widget-clock {
+  font-family: Impact, 'Arial Narrow', Arial, sans-serif;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  text-shadow:
+    -2px 0 rgba(255, 0, 60,  0.55),
+     2px 0 rgba(0, 240, 255, 0.55);
+}
+
+
+/* ---- Button widget ---------------------------------------- */
+/* Diagonal corner cuts (top-left, bottom-right) are the
+   signature CP2077 UI shape. clip-path clips the border too
+   so corners are cleanly cut rather than rounded.             */
+
+.theme-cyberpunk .widget-button {
+  border-radius: 0 !important;
+  font-family: Impact, 'Arial Narrow', Arial, sans-serif;
+  -webkit-clip-path: polygon(
+    0 10px,
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%
+  );
+  clip-path: polygon(
+    0 10px,
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%
+  );
+}
+
+.theme-cyberpunk .widget-button .btn-label {
+  font-family: Impact, 'Arial Narrow', Arial, sans-serif;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow:
+    -1px 0 rgba(255, 0, 60,  0.4),
+     1px 0 rgba(0, 240, 255, 0.4);
+}
+
+.theme-cyberpunk .widget-button .btn-icon {
+  text-shadow: 0 0 14px currentColor;
+}
+
+.theme-cyberpunk .widget-button:active {
+  opacity: 0.5;
+}
+
+
+/* ---- Bar widget fill -------------------------------------- */
+/* Strong neon glow on the leading edge of the fill.          */
+
+.theme-cyberpunk .widget-bar-fill {
+  -webkit-box-shadow: 4px 0 12px currentColor, 0 0 6px currentColor;
+          box-shadow: 4px 0 12px currentColor, 0 0 6px currentColor;
+}
+
+
+/* ---- Rectangle widget ------------------------------------ */
+/* clip-path is intentionally NOT applied to rectangles.
+   Rectangles vary from large card backgrounds to 1-2px thin
+   divider lines - a fixed polygon cut of 12px would completely
+   clip away any rectangle shorter than that. The angular
+   aesthetic is carried by the button clip-path and the overall
+   colour scheme instead.                                       */
+
+
+/* ---- Image and Camera widgets ----------------------------- */
+/* Unlike the Fallout theme which converts images to full
+   greenscale, the CP2077 approach keeps some colour but
+   degrades the image: partial desaturation, boosted contrast,
+   slight darkening. This reflects the game's aesthetic of
+   degraded-but-chromatic digital surveillance displays.
+
+   The ::after adds dense scanlines and a yellow inset glow
+   that frames the feed like a CP2077 HUD panel.               */
+
+.theme-cyberpunk .widget-image {
+  -webkit-filter: saturate(0.35) contrast(1.4) brightness(0.78);
+          filter: saturate(0.35) contrast(1.4) brightness(0.78);
+}
+
+.theme-cyberpunk .widget-image::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.22) 2px,
+    rgba(0, 0, 0, 0.22) 3px
+  );
+  -webkit-box-shadow: inset 0 0 16px rgba(252, 238, 9, 0.3);
+          box-shadow: inset 0 0 16px rgba(252, 238, 9, 0.3);
+  z-index: 10;
+}
