@@ -126,7 +126,9 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
   nameRow.appendChild(nameInput);
   container.appendChild(nameRow);
 
-  addXYWHRow(container, w, onChange);
+  if (w.type !== 'line') {
+    addXYWHRow(container, w, onChange);
+  }
 
   if (w.type === 'label') {
     addSectionHeader(container, 'Content');
@@ -643,6 +645,54 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
     addCheckbox(container, 'show legend', w.legend !== false, function(c) {
       onChange('legend', c ? undefined : false);
     });
+  }
+
+  if (w.type === 'line') {
+    addSectionHeader(container, 'Points');
+    addPairRow(container,
+      'start_x', makeNumberInput(w.start_x, function (v) { onChange('start_x', v); }),
+      'start_y', makeNumberInput(w.start_y, function (v) { onChange('start_y', v); })
+    );
+    addPairRow(container,
+      'end_x', makeNumberInput(w.end_x, function (v) { onChange('end_x', v); }),
+      'end_y', makeNumberInput(w.end_y, function (v) { onChange('end_y', v); })
+    );
+    addJsonArrayButton(container, 'Waypoints', w, 'waypoints', onChange);
+
+    addSectionHeader(container, 'Appearance');
+    addPairRow(container,
+      'color',     makeTextInput(w.color || '', function (v) { onChange('color', v || undefined); }),
+      'thickness', makeNumberInput(w.thickness, function (v) { onChange('thickness', v); })
+    );
+    addSelect(container, 'arrow', w.arrow || 'none', ['none', 'end', 'start', 'both'], onChange);
+    addPairRow(container,
+      'radius',           makeNumberInput(w.radius,           function (v) { onChange('radius', v); }),
+      'inactive_opacity', makeNumberInput(w.inactive_opacity, function (v) { onChange('inactive_opacity', v); })
+    );
+
+    addSectionHeader(container, 'Animation');
+    addSelect(container, 'effect', w.effect || 'none',
+      ['none', 'dot', 'comet_short', 'comet_medium', 'comet_long'], onChange);
+    addText(container, 'entity', w.entity, onChange);
+    addText(container, 'entity2', w.entity2, onChange);
+    addPairRow(container,
+      'dot_size',   makeNumberInput(w.dot_size,   function (v) { onChange('dot_size', v); }),
+      'dot_length', makeNumberInput(w.dot_length, function (v) { onChange('dot_length', v); })
+    );
+    addPairRow(container,
+      'dot_spacing', makeNumberInput(w.dot_spacing, function (v) { onChange('dot_spacing', v); }),
+      'dot_color',   makeTextInput(w.dot_color || '', function (v) { onChange('dot_color', v || undefined); })
+    );
+    addPairRow(container,
+      'animate_min_value', makeNumberInput(w.animate_min_value, function (v) { onChange('animate_min_value', v); }),
+      'animate_max_value', makeNumberInput(w.animate_max_value, function (v) { onChange('animate_max_value', v); })
+    );
+    addPairRow(container,
+      'animate_min_rate', makeNumberInput(w.animate_min_rate, function (v) { onChange('animate_min_rate', v); }),
+      'animate_max_rate', makeNumberInput(w.animate_max_rate, function (v) { onChange('animate_max_rate', v); })
+    );
+
+    addOverridesButton(container, w, onChange);
   }
 }
 

@@ -152,6 +152,113 @@ export function createWidgetGroup(w, theme) {
     }));
   }
 
+  // Line widget: special rendering using absolute canvas coords
+  if (w.type === 'line') {
+    // Collect all absolute points
+    var absPts = [{ x: (w.start_x || 0), y: (w.start_y || 0) }];
+    if (w.waypoints) {
+      for (var lpi = 0; lpi < w.waypoints.length; lpi++) {
+        absPts.push({ x: w.waypoints[lpi].x, y: w.waypoints[lpi].y });
+      }
+    }
+    absPts.push({ x: (w.end_x || 200), y: (w.end_y || 0) });
+
+    // Bounding box with padding so strokes and handles are not clipped
+    var lMinX = absPts[0].x, lMinY = absPts[0].y;
+    var lMaxX = absPts[0].x, lMaxY = absPts[0].y;
+    for (var lbi = 1; lbi < absPts.length; lbi++) {
+      lMinX = Math.min(lMinX, absPts[lbi].x);
+      lMinY = Math.min(lMinY, absPts[lbi].y);
+      lMaxX = Math.max(lMaxX, absPts[lbi].x);
+      lMaxY = Math.max(lMaxY, absPts[lbi].y);
+    }
+    var lPad = Math.max((w.thickness || 2), (w.dot_size || 6)) + 10;
+    var lgx  = lMinX - lPad;
+    var lgy  = lMinY - lPad;
+    var lgw  = Math.max(1, lMaxX - lMinX + lPad * 2);
+    var lgh  = Math.max(1, lMaxY - lMinY + lPad * 2);
+
+    // Replace the default group with one sized to the bounding box
+    group.destroy();
+    group = new Konva.Group({
+      id:        w.id || '',
+      x:         lgx,
+      y:         lgy,
+      width:     lgw,
+      height:    lgh,
+      draggable: true
+    });
+
+    // Relative point coords (subtract group origin)
+    var konvaPts = [];
+    for (var kpi = 0; kpi < absPts.length; kpi++) {
+      konvaPts.push(absPts[kpi].x - lgx, absPts[kpi].y - lgy);
+    }
+
+    var lColor = resolveColor(w.color || 'surface2', theme) || '#8ADF45';
+
+    // Transparent hit rect for easy selection anywhere near the line
+    var lHitRect = new Konva.Rect({ x: 0, y: 0, width: lgw, height: lgh, fill: 'transparent', listening: true });
+    group.add(lHitRect);
+
+    // Wide invisible stroke for easier path hit-testing
+    var lHitLine = new Konva.Line({
+      points:      konvaPts,
+      stroke:      'rgba(0,0,0,0.01)',
+      strokeWidth: Math.max(12, (w.thickness || 2) + 10),
+      lineCap:     'round',
+      lineJoin:    'round',
+      listening:   true
+    });
+    group.add(lHitLine);
+
+    // Visible track line
+    var lTrackLine = new Konva.Line({
+      points:      konvaPts,
+      stroke:      lColor,
+      strokeWidth: w.thickness || 2,
+      lineCap:     'round',
+      lineJoin:    'round',
+      listening:   false
+    });
+    group.add(lTrackLine);
+
+    // Small circles at each point
+    var lPointCircles = [];
+    for (var lci = 0; lci < absPts.length; lci++) {
+      var lpc = new Konva.Circle({
+        x:           absPts[lci].x - lgx,
+        y:           absPts[lci].y - lgy,
+        radius:      4,
+        fill:        lColor,
+        stroke:      '#fff',
+        strokeWidth: 1,
+        listening:   false
+      });
+      group.add(lpc);
+      lPointCircles.push(lpc);
+    }
+
+    // ID label
+    group.add(new Konva.Text({
+      x:         lPad,
+      y:         2,
+      text:      w.id || '',
+      fontSize:  11,
+      fill:      '#cfd6dd',
+      listening: false
+    }));
+
+    group._isLine       = true;
+    group._lineBBox     = { x: lgx, y: lgy, w: lgw, h: lgh };
+    group._hitRect      = lHitRect;
+    group._hitLine      = lHitLine;
+    group._trackLine    = lTrackLine;
+    group._pointCircles = lPointCircles;
+    group._data         = w;
+    return group;
+  }
+
   group._rect = bg;
   group._label = label;
   group._data = w;

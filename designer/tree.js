@@ -12,7 +12,8 @@ var BADGES = {
   camera:        { char: 'V', color: '#477' },
   history_chart: { char: 'H', color: '#4a8' },
   scene:         { char: 'N', color: '#7a6' },
-  agenda:        { char: 'G', color: '#5a8' }
+  agenda:        { char: 'G', color: '#5a8' },
+  line:          { char: '/', color: '#8a6' }
 };
 
 // renderTree — builds the widget list in the left sidebar.

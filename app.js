@@ -14,6 +14,7 @@
   var wsReconnectTimer = null;
   var wsSubscriptionId = null;
   var wsCommandSubId   = null;
+  var wsAuthenticated  = false;  // true only after auth_ok received
   var havenDeviceId    = null;   // ?device= URL param, used to filter haven_command events
   var msgId = 1;
   var entityCallbacks = {};        // entityId -> [callback, ...] for current page
@@ -991,6 +992,10 @@
       el.style.borderStyle = 'solid';
       el.style.borderColor = resolveColor(w.border_color || 'surface2');
       el.style.boxSizing   = 'border-box';
+      // Mirror radius onto the outer host so the border follows the rounded corners.
+      // (The inner .widget-surface carries the fill and its own border-radius, but
+      // the CSS border is painted on the host element which needs the same value.)
+      if (w.radius) el.style.borderRadius = w.radius + 'px';
     }
 
     switch (w.type) {
@@ -1009,6 +1014,7 @@
       case 'agenda':       renderAgenda(contentEl, w);       break;
       case 'tasks':        renderTasks(contentEl, w);        break;
       case 'history_chart': renderHistoryChart(contentEl, w); break;
+      case 'line':          renderLine(contentEl, w);         break;
       default:
         contentEl.style.background = 'rgba(255,0,0,0.3)';
         contentEl.textContent = 'Unknown: ' + w.type;
@@ -4548,6 +4554,338 @@
     timerRef.id = timer;
   }
 
+  // -- Line widget --
+  // Draws a styled line from (x1,y1) to (x2,y2) via optional waypoints.
+  // Coordinates are in canvas space - same system as all other widget x/y props.
+  // The widget element is overridden to full-canvas size with pointer-events:none
+  // so line coordinates are absolute. Place line widgets early in the widgets array
+  // so they render beneath other widgets.
+  //
+  // Static example (no animation):
+  //   { "type":"line", "x1":100,"y1":200,"x2":400,"y2":200, "color":"surface2", "thickness":2 }
+  //
+  // Animated example (entity-driven):
+  //   { "type":"line", "x1":100,"y1":200,"x2":400,"y2":200,
+  //     "waypoints":[{"x":250,"y":200},{"x":250,"y":350}], "radius":20,
+  //     "color":"surface2", "thickness":3, "arrow":"end",
+  //     "effect":"dot", "dot_size":8, "dot_color":"primary", "dot_spacing":30,
+  //     "entity":"sensor.solar_power",
+  //     "animate_min_value":100, "animate_max_value":5000,
+  //     "animate_min_rate":5, "animate_max_rate":0.5, "inactive_opacity":0.25,
+  //     "overrides":[{"when":{"conditions":[{"type":"below","value":0}]},
+  //                   "set":{"dot_color":"warning","arrow":"start"}}] }
+  function renderLine(el, w) {
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var cw = config.device.canvas.width;
+    var ch = config.device.canvas.height;
+
+    // Override element to full canvas - line points are in canvas coordinate space
+    el.style.left        = '0';
+    el.style.top         = '0';
+    el.style.width       = cw + 'px';
+    el.style.height      = ch + 'px';
+    el.style.pointerEvents = 'none';
+    el.style.border      = 'none';
+    el.style.background  = 'transparent';
+
+    var svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width',  cw);
+    svg.setAttribute('height', ch);
+    svg.style.position = 'absolute';
+    svg.style.left     = '0';
+    svg.style.top      = '0';
+    svg.style.overflow = 'visible';
+    el.appendChild(svg);
+
+    // ---- Path geometry ------------------------------------------------
+
+    function buildPts() {
+      var pts = [{ x: w.start_x, y: w.start_y }];
+      if (w.waypoints) {
+        for (var wi = 0; wi < w.waypoints.length; wi++) pts.push(w.waypoints[wi]);
+      }
+      pts.push({ x: w.end_x, y: w.end_y });
+      return pts;
+    }
+
+    function buildPathData(pts, r) {
+      if (!pts || pts.length < 2) return '';
+      var d, ii;
+      if (!r || r <= 0 || pts.length === 2) {
+        d = 'M ' + pts[0].x + ' ' + pts[0].y;
+        for (ii = 1; ii < pts.length; ii++) d += ' L ' + pts[ii].x + ' ' + pts[ii].y;
+        return d;
+      }
+      d = 'M ' + pts[0].x + ' ' + pts[0].y;
+      for (ii = 1; ii < pts.length - 1; ii++) {
+        var prev = pts[ii - 1], curr = pts[ii], next = pts[ii + 1];
+        var cr  = curr.radius !== undefined ? curr.radius : r;
+        var d1x = curr.x - prev.x, d1y = curr.y - prev.y;
+        var d2x = next.x - curr.x, d2y = next.y - curr.y;
+        var l1  = Math.sqrt(d1x * d1x + d1y * d1y);
+        var l2  = Math.sqrt(d2x * d2x + d2y * d2y);
+        if (!l1 || !l2) { d += ' L ' + curr.x + ' ' + curr.y; continue; }
+        var rc  = Math.min(cr, l1 / 2, l2 / 2);
+        var bx  = (curr.x - (d1x / l1) * rc).toFixed(2);
+        var by  = (curr.y - (d1y / l1) * rc).toFixed(2);
+        var ax  = (curr.x + (d2x / l2) * rc).toFixed(2);
+        var ay  = (curr.y + (d2y / l2) * rc).toFixed(2);
+        d += ' L ' + bx + ' ' + by + ' Q ' + curr.x + ' ' + curr.y + ' ' + ax + ' ' + ay;
+      }
+      return d + ' L ' + pts[pts.length - 1].x + ' ' + pts[pts.length - 1].y;
+    }
+
+    var linePts  = buildPts();
+    var pathData = buildPathData(linePts, w.radius || 0);
+
+    // ---- SVG defs (arrowhead markers) ---------------------------------
+
+    var defs      = document.createElementNS(svgNS, 'defs');
+    svg.appendChild(defs);
+    var markerEls = [];
+    var mid       = 'lm-' + (w.id || 'l');
+
+    function createArrowMarker(id, color) {
+      var m = document.createElementNS(svgNS, 'marker');
+      m.setAttribute('id', id);
+      m.setAttribute('markerWidth',  '6');
+      m.setAttribute('markerHeight', '6');
+      m.setAttribute('refX', '5');
+      m.setAttribute('refY', '3');
+      m.setAttribute('orient', 'auto');
+      m.setAttribute('markerUnits', 'strokeWidth');
+      var p = document.createElementNS(svgNS, 'path');
+      p.setAttribute('d', 'M 0 0 L 6 3 L 0 6 Z');
+      p.setAttribute('fill', color);
+      m.appendChild(p);
+      return m;
+    }
+
+    function applyArrows(arrow, color) {
+      for (var mi = 0; mi < markerEls.length; mi++) {
+        if (markerEls[mi].parentNode) markerEls[mi].parentNode.removeChild(markerEls[mi]);
+      }
+      markerEls = [];
+      trackPath.removeAttribute('marker-end');
+      trackPath.removeAttribute('marker-start');
+      if (!arrow || arrow === 'none') return;
+      if (arrow === 'end' || arrow === 'both') {
+        var me = createArrowMarker(mid + '-e', color);
+        defs.appendChild(me);
+        markerEls.push(me);
+        trackPath.setAttribute('marker-end', 'url(#' + mid + '-e)');
+      }
+      if (arrow === 'start' || arrow === 'both') {
+        var ms = createArrowMarker(mid + '-s', color);
+        ms.setAttribute('orient', 'auto-start-reverse');
+        defs.appendChild(ms);
+        markerEls.push(ms);
+        trackPath.setAttribute('marker-start', 'url(#' + mid + '-s)');
+      }
+    }
+
+    // ---- Track path ---------------------------------------------------
+
+    var thickness  = w.thickness !== undefined ? w.thickness : 2;
+    var trackColor = resolveColor(w.color || 'surface2');
+
+    var trackPath = document.createElementNS(svgNS, 'path');
+    trackPath.setAttribute('d',              pathData);
+    trackPath.setAttribute('fill',           'none');
+    trackPath.setAttribute('stroke',         trackColor);
+    trackPath.setAttribute('stroke-width',   thickness);
+    trackPath.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(trackPath);
+
+    applyArrows(w.arrow, trackColor);
+
+    // ---- Animation config ---------------------------------------------
+
+    var pathLength = trackPath.getTotalLength ? trackPath.getTotalLength() : 300;
+
+    var dotSize           = w.dot_size     !== undefined ? w.dot_size     : 6;
+    var dotLength         = w.dot_length   !== undefined ? w.dot_length   : 1;  // 1 = round, >1 = dash/pill
+    var dotSpacing        = w.dot_spacing  !== undefined ? w.dot_spacing  : 30;
+    var currentDotSpacing = dotSpacing; // mutable - updated by overrides
+    var dotColor          = resolveColor(w.dot_color || w.color || 'primary');
+    var inactOpac         = w.inactive_opacity !== undefined ? w.inactive_opacity : 0.25;
+
+    // Normalise effect name. 'comet' alone = comet_medium. 'dash' = dot with long dot_length.
+    var effect = w.effect !== undefined ? w.effect : (w.entity ? 'dot' : 'none');
+    if (effect === 'comet') effect = 'comet_medium';
+    if (effect === 'dash')  effect = 'dot';
+
+    // Comet trail length derived from dot_size so it looks consistent across lines of any length
+    var trailLen = dotSize * (effect === 'comet_short' ? 4 : effect === 'comet_long' ? 20 : 10);
+    var trailFade = 0.12; // opacity of tail tip relative to head
+    var isComet  = (effect === 'comet_short' || effect === 'comet_medium' || effect === 'comet_long');
+
+    var animPath   = null;
+    var cometElems = [];
+
+    if (effect === 'dot') {
+      animPath = document.createElementNS(svgNS, 'path');
+      animPath.setAttribute('d',                 pathData);
+      animPath.setAttribute('fill',              'none');
+      animPath.setAttribute('stroke',            dotColor);
+      animPath.setAttribute('stroke-width',      dotSize);
+      animPath.setAttribute('stroke-linecap',    'round');
+      animPath.setAttribute('stroke-dasharray',  dotLength + ' ' + dotSpacing);
+      animPath.setAttribute('stroke-dashoffset', '0');
+      animPath.style.display = 'none'; // hidden until first entity state resolves speed
+      svg.appendChild(animPath);
+
+    } else if (isComet) {
+      var trailSteps = 10;
+      for (var ci = 0; ci < trailSteps; ci++) {
+        var cc     = document.createElementNS(svgNS, 'circle');
+        var cratio = 1 - ci / trailSteps;
+        cc.setAttribute('r',       Math.max(1, dotSize * (0.3 + cratio * 0.7)).toFixed(1));
+        cc.setAttribute('fill',    dotColor);
+        cc.setAttribute('opacity', (ci === 0 ? 1 : (trailFade + cratio * (1 - trailFade))).toFixed(2));
+        cc.setAttribute('cx', '-9999');
+        cc.setAttribute('cy', '-9999');
+        cc.style.display = 'none'; // hidden until first entity state resolves speed
+        svg.appendChild(cc);
+        cometElems.push(cc);
+      }
+    }
+
+    // ---- Speed mapping ------------------------------------------------
+
+    function valueToSpeed(absVal) {
+      if (absVal <= 0) return 0;
+      var minVal  = w.animate_min_value !== undefined ? w.animate_min_value : 100;
+      var maxVal  = w.animate_max_value !== undefined ? w.animate_max_value : 5000;
+      // animate_min_rate / animate_max_rate are now pixels-per-second values.
+      // Speed is line-length-independent so dots on all lines move at the same
+      // visual velocity regardless of how long each line is.
+      var minRate = w.animate_min_rate  !== undefined ? w.animate_min_rate  : 10;
+      var maxRate = w.animate_max_rate  !== undefined ? w.animate_max_rate  : 60;
+      var clamped = Math.max(minVal, Math.min(maxVal, absVal));
+      // Linear scale: value maps proportionally to speed.
+      // Half the value range = half the speed range, as expected.
+      var t = (clamped - minVal) / (maxVal - minVal); // 0..1 linear
+      return minRate + t * (maxRate - minRate);  // pixels per second
+    }
+
+    // ---- RAF animation loop -------------------------------------------
+
+    var curSpeed = 0;
+    var curDir   = 1;
+    var prevDir  = 1;
+    // Comet starts at trailLen so circles are spread along the trail immediately.
+    // Dot/dash starts at 0 (first dot at path start is fine for dashoffset animation).
+    var offset   = isComet ? trailLen : 0;
+    var lastTs   = null;
+    var active   = true;
+    var rafId    = null;
+
+    function rafTick(ts) {
+      if (!active) return;
+      rafId = requestAnimationFrame(rafTick);
+      if (lastTs === null) { lastTs = ts; return; }
+      var dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      if (curSpeed <= 0) return;
+
+      // Reset offset on direction change so animation restarts cleanly from the correct end
+      if (curDir !== prevDir) {
+        offset = isComet ? trailLen : 0;
+        prevDir = curDir;
+      }
+
+      offset += curSpeed * dt; // always positive
+
+      if (effect === 'dot') {
+        var cycle         = dotLength + currentDotSpacing;
+        var normalizedOff = offset % cycle;
+        // Forward (curDir 1): negative dashoffset shifts pattern toward path end
+        // Reverse (curDir -1): positive dashoffset shifts pattern toward path start
+        var dashOff = curDir === 1 ? -normalizedOff : normalizedOff;
+        animPath.setAttribute('stroke-dashoffset', dashOff.toFixed(1));
+
+      } else if (isComet) {
+        var pos     = offset % pathLength;
+        var headPos = curDir === 1 ? pos : (pathLength - pos);
+        var step    = trailLen / cometElems.length;
+        for (var ri = 0; ri < cometElems.length; ri++) {
+          var trailPos = curDir === 1
+            ? Math.max(0,          headPos - ri * step)
+            : Math.min(pathLength, headPos + ri * step);
+          var pt = trackPath.getPointAtLength(trailPos);
+          cometElems[ri].setAttribute('cx', pt.x.toFixed(1));
+          cometElems[ri].setAttribute('cy', pt.y.toFixed(1));
+        }
+      }
+    }
+
+    if (effect !== 'none') {
+      rafId = requestAnimationFrame(rafTick);
+      activePageTimers.push({
+        id: null,
+        stop: function () {
+          active = false;
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+        }
+      });
+    }
+
+    // ---- State / overrides application --------------------------------
+
+    function applyLineState(state) {
+      var ovr = state ? (resolveOverrides(w, state) || {}) : {};
+
+      var newColor = resolveColor(ovr.color !== undefined ? ovr.color : (w.color || 'surface2'));
+      trackPath.setAttribute('stroke', newColor);
+
+      var newThick = ovr.thickness !== undefined ? ovr.thickness : thickness;
+      trackPath.setAttribute('stroke-width', newThick);
+
+      var newArrow = ovr.arrow !== undefined ? ovr.arrow : (w.arrow || 'none');
+      applyArrows(newArrow, newColor);
+
+      var newDotColor = resolveColor(ovr.dot_color !== undefined ? ovr.dot_color : (w.dot_color || w.color || 'primary'));
+      if (animPath) animPath.setAttribute('stroke', newDotColor);
+      for (var si = 0; si < cometElems.length; si++) cometElems[si].setAttribute('fill', newDotColor);
+
+      var newSpacing = ovr.dot_spacing !== undefined ? ovr.dot_spacing : dotSpacing;
+      if (newSpacing !== currentDotSpacing && animPath && effect === 'dot') {
+        currentDotSpacing = newSpacing;
+        animPath.setAttribute('stroke-dasharray', dotLength + ' ' + currentDotSpacing);
+      }
+
+      if (state && w.entity) {
+        var val    = parseFloat(state.state);
+        var absVal = isNaN(val) ? 0 : Math.abs(val);
+        curDir   = (!isNaN(val) && val < 0) ? -1 : 1;
+        curSpeed = valueToSpeed(absVal);
+        var stopped = curSpeed <= 0;
+        trackPath.setAttribute('opacity', stopped ? String(inactOpac) : '1');
+        if (animPath) animPath.style.display = stopped ? 'none' : '';
+        for (var si = 0; si < cometElems.length; si++) {
+          cometElems[si].style.display = stopped ? 'none' : '';
+          if (!stopped) {
+            var sr = 1 - si / cometElems.length;
+            cometElems[si].setAttribute('opacity', (si === 0 ? 1 : (trailFade + sr * (1 - trailFade))).toFixed(2));
+          }
+        }
+      }
+    }
+
+    applyLineState(w.entity ? (entityStates[w.entity] || null) : null);
+    if (w.entity) {
+      registerEntityCallback(w.entity, function (state) { applyLineState(state); });
+    }
+    if (w.entity2) {
+      // entity2 state is available as state2/attribute2 in override conditions.
+      // When entity2 changes, re-evaluate overrides against the current primary state.
+      registerEntityCallback(w.entity2, function () {
+        applyLineState(w.entity ? (entityStates[w.entity] || null) : null);
+      });
+    }
+  }
+
   // -- Camera widget --
   //
   // preview modes:
@@ -4668,40 +5006,49 @@
         };
         nextImg.src = url;
       } else {
-        // Token not in cache yet - fetch entity state once then sign the path
-        // Use a flag on the element to avoid hammering fetchEntityState every tick
+        // Token not in cache yet - register entity callback + sign_path fallback.
+        // Use a flag on the element to avoid registering the callback more than once.
         if (!el._stateFetched) {
           el._stateFetched = true;
           console.log('HAven camera [' + (w.id || entity) + ']: no access_token in cache, fetching entity state + sign_path fallback');
           fetchEntityState(entity);
-          // Also register a one-time entity callback so that when the state arrives
-          // (e.g. after WS connects and get_states completes), we immediately retry
-          // fetchSnapshot rather than waiting up to one full interval cycle (can be 60s).
+          // Persistent callback: stays registered until access_token arrives (camera may
+          // come back online after being unavailable) or the page is navigated away
+          // (entityCallbacks is replaced on page nav so no leak).
           var onStateArrived = function(state) {
-            var cbs = entityCallbacks[entity];
-            if (cbs) { var idx = cbs.indexOf(onStateArrived); if (idx !== -1) cbs.splice(idx, 1); }
-            if (active && state && state.attributes && state.attributes.access_token) {
+            if (!active) return;
+            if (state && state.attributes && state.attributes.access_token) {
+              // Token available now - deregister and load immediately
+              var cbs = entityCallbacks[entity];
+              if (cbs) { var idx = cbs.indexOf(onStateArrived); if (idx !== -1) cbs.splice(idx, 1); }
               fetchSnapshot();
             }
+            // No access_token yet: stay registered so next state_changed retries
           };
           registerEntityCallback(entity, onStateArrived);
         }
-        var path   = '/api/camera_proxy/' + entity;
-        var ttl    = Math.ceil(interval / 1000) + 5;
-        var signId = requestSignedUrl(path, ttl, function(signedUrl) {
-          var i = pendingSignIds.indexOf(signId);
-          if (i !== -1) pendingSignIds.splice(i, 1);
-          if (!active) return;
-          if (!signedUrl) {
-            console.warn('HAven camera [' + (w.id || entity) + ']: sign_path returned no URL');
-            return;
-          }
-          var fb = new Image();
-          fb.onload = function() { if (!active) return; img.src = fb.src; loader.style.display = 'none'; };
-          fb.onerror = function() { console.warn('HAven camera [' + (w.id || entity) + ']: sign_path image load failed'); };
-          fb.src = signedUrl;
-        });
-        pendingSignIds.push(signId);
+        // sign_path fallback: only send while WS is authenticated and no request already in flight.
+        // Prevents orphaned pendingStreamRequests entries and duplicate in-flight requests.
+        if (wsAuthenticated && !el._signPending) {
+          el._signPending = true;
+          var path   = '/api/camera_proxy/' + entity;
+          var ttl    = Math.ceil(interval / 1000) + 5;
+          var signId = requestSignedUrl(path, ttl, function(signedUrl) {
+            el._signPending = false;
+            var i = pendingSignIds.indexOf(signId);
+            if (i !== -1) pendingSignIds.splice(i, 1);
+            if (!active) return;
+            if (!signedUrl) {
+              console.warn('HAven camera [' + (w.id || entity) + ']: sign_path returned no URL');
+              return;
+            }
+            var fb = new Image();
+            fb.onload = function() { if (!active) return; img.src = fb.src; loader.style.display = 'none'; };
+            fb.onerror = function() { console.warn('HAven camera [' + (w.id || entity) + ']: sign_path image load failed'); };
+            fb.src = signedUrl;
+          });
+          pendingSignIds.push(signId);
+        }
       }
     };
 
@@ -5746,6 +6093,7 @@
     };
 
     ws.onclose = function () {
+      wsAuthenticated = false;
       setConnStatus('disconnected');
       scheduleReconnect();
     };
@@ -5770,6 +6118,7 @@
         break;
 
       case 'auth_ok':
+        wsAuthenticated = true;
         setConnStatus('connected');
         fetchAllStates();
         subscribeStateChanged();

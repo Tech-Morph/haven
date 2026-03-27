@@ -25,8 +25,14 @@ var redoStack = [];
 var MAX_UNDO = 50;
 var isDirty = false;
 var transforming = false;
+var lastLineClickTs = 0;   // module-level: survives renderPage() group recreation
+var lastLineClickId = '';
 var widgetClipboard = null; // { items:[{widget,pageId}], copiedAt:number }
 var clipboardPasteCount = 0;
+var rubberRect = null;        // Konva.Rect drawn during drag-to-select
+var rubberOrigin = null;      // { x, y } canvas coords where drag started
+var rubberMoved = false;      // true once the drag exceeds the threshold
+var rubberJustSelected = false; // suppresses the click-to-deselect after a rubber-band
 
 var pickDeviceBtn = document.getElementById('pickDeviceBtn');
 var pageSelect = document.getElementById('pageSelect');
@@ -54,6 +60,7 @@ var addCameraBtn = document.getElementById('addCameraBtn');
 var addAgendaBtn = document.getElementById('addAgendaBtn');
 var addTasksBtn  = document.getElementById('addTasksBtn');
 var addHistoryChartBtn = document.getElementById('addHistoryChartBtn');
+var addLineBtn         = document.getElementById('addLineBtn');
 var addHGuideBtn = document.getElementById('addHGuideBtn');
 var addVGuideBtn = document.getElementById('addVGuideBtn');
 var clearGuidesBtn = document.getElementById('clearGuidesBtn');
@@ -297,6 +304,7 @@ function init() {
   addAgendaBtn.addEventListener('click', function () { addWidget('agenda'); });
   addTasksBtn.addEventListener('click',  function () { addWidget('tasks'); });
   addHistoryChartBtn.addEventListener('click', function () { addWidget('history_chart'); });
+  addLineBtn.addEventListener('click',         function () { addWidget('line'); });
   addHGuideBtn.addEventListener('click', function () { addGuide('h'); });
   addVGuideBtn.addEventListener('click', function () { addGuide('v'); });
   clearGuidesBtn.addEventListener('click', function () { clearGuides(); });
@@ -613,11 +621,71 @@ function setupStage() {
       e.evt.preventDefault();
       stage.draggable(true);
       stage.startDrag();
+      return;
     }
+    // Left-click on empty canvas: start rubber-band selection
+    if (e.evt && e.evt.button === 0 && e.target === stage && !panEnabled) {
+      var pos = stage.getPointerPosition();
+      var sc = stage.scaleX();
+      rubberOrigin = {
+        x: (pos.x - stage.x()) / sc,
+        y: (pos.y - stage.y()) / sc
+      };
+      rubberMoved = false;
+      rubberRect = new Konva.Rect({
+        x: rubberOrigin.x, y: rubberOrigin.y,
+        width: 0, height: 0,
+        fill: 'rgba(138,223,69,0.08)',
+        stroke: '#8ADF45',
+        strokeWidth: 1,
+        dash: [4, 3],
+        listening: false
+      });
+      uiLayer.add(rubberRect);
+    }
+  });
+  stage.on('mousemove', function () {
+    if (!rubberRect || !rubberOrigin) return;
+    var pos = stage.getPointerPosition();
+    var sc = stage.scaleX();
+    var cx = (pos.x - stage.x()) / sc;
+    var cy = (pos.y - stage.y()) / sc;
+    var rx = Math.min(cx, rubberOrigin.x);
+    var ry = Math.min(cy, rubberOrigin.y);
+    var rw = Math.abs(cx - rubberOrigin.x);
+    var rh = Math.abs(cy - rubberOrigin.y);
+    if (rw > 4 || rh > 4) rubberMoved = true;
+    rubberRect.setAttrs({ x: rx, y: ry, width: rw, height: rh });
+    uiLayer.batchDraw();
   });
   stage.on('mouseup', function (e) {
     if (e.evt && e.evt.button === 2) {
       stage.draggable(panEnabled);
+      return;
+    }
+    if (rubberRect) {
+      if (rubberMoved) {
+        var rx = rubberRect.x(), ry = rubberRect.y();
+        var rw = rubberRect.width(), rh = rubberRect.height();
+        var additive = !!(e.evt && e.evt.shiftKey);
+        if (!additive) selectedIds = [];
+        var allGroups = pageLayer.getChildren().concat(overlayLayer.getChildren());
+        allGroups.forEach(function (g) {
+          if (!g.visible()) return;
+          var gx = g.x(), gy = g.y(), gw = g.width(), gh = g.height();
+          if (gx + gw > rx && gx < rx + rw && gy + gh > ry && gy < ry + rh) {
+            var id = g.id();
+            if (id && !locked[id] && selectedIds.indexOf(id) === -1) selectedIds.push(id);
+          }
+        });
+        rubberJustSelected = true;
+        renderPage();
+      }
+      rubberRect.destroy();
+      rubberRect = null;
+      rubberOrigin = null;
+      rubberMoved = false;
+      uiLayer.batchDraw();
     }
   });
   stage.on('dragmove', function () {
@@ -629,6 +697,7 @@ function setupStage() {
 
   stage.on('click', function (e) {
     if (e.target === stage) {
+      if (rubberJustSelected) { rubberJustSelected = false; return; }
       selectedIds = [];
       renderPage();
     }
@@ -779,11 +848,129 @@ function renderPage() {
   }
   var selNodes = [];
   selectedIds.forEach(function (id) {
-    if (locked[id]) return;  // locked widgets excluded from transformer
+    if (locked[id]) return;
     var gsel = findGroupById(id);
-    if (gsel) selNodes.push(gsel);
+    if (gsel && !gsel._isLine) selNodes.push(gsel); // lines excluded from transformer
   });
   transformer.nodes(selNodes);
+
+  // Draw a dashed selection rect for selected line widgets (no transformer handles for lines).
+  // Destroy any stale ones from the previous render before adding fresh ones.
+  uiLayer.find('.lineSelRect').forEach(function (node) { node.destroy(); });
+  uiLayer.find('.lineHandle').forEach(function (node) { node.destroy(); });
+  selectedIds.forEach(function (id) {
+    if (locked[id]) return;
+    var gsel = findGroupById(id);
+    if (gsel && gsel._isLine) {
+      uiLayer.add(new Konva.Rect({
+        name:        'lineSelRect',
+        x:           gsel.x(), y: gsel.y(),
+        width:       gsel.width(), height: gsel.height(),
+        stroke:      '#8ADF45',
+        strokeWidth: 1,
+        dash:        [5, 3],
+        fill:        'transparent',
+        listening:   false
+      }));
+    }
+  });
+
+  // Add draggable point handles for all points on selected line widgets.
+  // Green filled = endpoint (start/end).  White with green border = waypoint (right-click to remove).
+  selectedIds.forEach(function (id) {
+    if (locked[id]) return;
+    var gsel = findGroupById(id);
+    if (!gsel || !gsel._isLine) return;
+    var wl = gsel._data;
+
+    function syncSelRect() {
+      uiLayer.find('.lineSelRect').forEach(function (node) {
+        node.position({ x: gsel.x(), y: gsel.y() });
+        node.width(gsel.width());
+        node.height(gsel.height());
+      });
+    }
+
+    function makeEndHandle(cx, cy, keyX, keyY, fill) {
+      var handle = new Konva.Circle({
+        name: 'lineHandle', x: cx, y: cy,
+        radius: 6, fill: fill || '#8ADF45', stroke: '#fff', strokeWidth: 1.5,
+        draggable: true, hitStrokeWidth: 8
+      });
+      handle._origX = cx;
+      handle._origY = cy;
+      handle.on('click', function (e) { e.cancelBubble = true; });
+      handle.on('dragmove', function () {
+        var nx = snapEnabled ? Math.round(handle.x() / gridSize) * gridSize : handle.x();
+        var ny = snapEnabled ? Math.round(handle.y() / gridSize) * gridSize : handle.y();
+        handle.position({ x: nx, y: ny });
+        wl[keyX] = Math.round(nx);
+        wl[keyY] = Math.round(ny);
+        refreshLineGroup(gsel, wl);
+        syncSelRect();
+        pageLayer.batchDraw();
+        uiLayer.batchDraw();
+      });
+      handle.on('dragend', function () {
+        pushHistory();
+        wl[keyX] = Math.round(handle.x());
+        wl[keyY] = Math.round(handle.y());
+        updateProps(propsEl, [wl], onPropChange, onDeleteSelected, onDuplicateSelected, undefined, config.theme, openThemeModal, openEntitySearch, openAttributeSearch);
+        renderPage();
+      });
+      return handle;
+    }
+
+    function makeWaypointHandle(cx, cy, idx) {
+      var handle = new Konva.Circle({
+        name: 'lineHandle', x: cx, y: cy,
+        radius: 5, fill: '#3b4755', stroke: '#8ADF45', strokeWidth: 1.5,
+        draggable: true, hitStrokeWidth: 8
+      });
+      handle._origX = cx;
+      handle._origY = cy;
+      handle.on('click', function (e) { e.cancelBubble = true; });
+      // Right-click removes the waypoint.
+      // Use mousedown+button check (fires reliably before the browser context menu).
+      handle.on('mousedown', function (e) {
+        if (e.evt.button !== 2) return;
+        e.cancelBubble = true;
+        pushHistory();
+        wl.waypoints.splice(idx, 1);
+        if (!wl.waypoints.length) delete wl.waypoints;
+        renderPage();
+      });
+      handle.on('contextmenu', function (e) { e.evt.preventDefault(); e.cancelBubble = true; });
+      handle.on('dragmove', function () {
+        var nx = snapEnabled ? Math.round(handle.x() / gridSize) * gridSize : handle.x();
+        var ny = snapEnabled ? Math.round(handle.y() / gridSize) * gridSize : handle.y();
+        handle.position({ x: nx, y: ny });
+        wl.waypoints[idx].x = Math.round(nx);
+        wl.waypoints[idx].y = Math.round(ny);
+        refreshLineGroup(gsel, wl);
+        syncSelRect();
+        pageLayer.batchDraw();
+        uiLayer.batchDraw();
+      });
+      handle.on('dragend', function () {
+        pushHistory();
+        wl.waypoints[idx].x = Math.round(handle.x());
+        wl.waypoints[idx].y = Math.round(handle.y());
+        updateProps(propsEl, [wl], onPropChange, onDeleteSelected, onDuplicateSelected, undefined, config.theme, openThemeModal, openEntitySearch, openAttributeSearch);
+        renderPage();
+      });
+      return handle;
+    }
+
+    uiLayer.add(makeEndHandle(wl.start_x, wl.start_y, 'start_x', 'start_y', '#8ADF45'));
+    uiLayer.add(makeEndHandle(wl.end_x,   wl.end_y,   'end_x',   'end_y',   '#F0AD4E'));
+    if (wl.waypoints) {
+      wl.waypoints.forEach(function (wp, idx) {
+        uiLayer.add(makeWaypointHandle(wp.x, wp.y, idx));
+      });
+    }
+  });
+
   uiLayer.draw();
 
   renderTree(treeEl, widgets, selectedIds, hidden, locked, treeFilter, onSelectTree, onToggleHide, onToggleLock, onReorder);
@@ -791,6 +978,61 @@ function renderPage() {
   updateHistoryButtons();
   syncPreviewTransform();
   if (previewActive) refreshPreview();
+}
+
+// Perpendicular distance from point p to line segment a-b.
+// Used to find the closest segment when inserting a waypoint.
+function distPointToSegment(p, a, b) {
+  var dx = b.x - a.x, dy = b.y - a.y;
+  var len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.sqrt((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y));
+  var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  var px = a.x + t * dx, py = a.y + t * dy;
+  return Math.sqrt((p.x - px) * (p.x - px) + (p.y - py) * (p.y - py));
+}
+
+// Rebuild a line group's Konva geometry in-place after a point coord changes.
+// Called during point-handle dragmove for real-time visual feedback.
+function refreshLineGroup(group, w) {
+  var absPts = [{ x: w.start_x || 0, y: w.start_y || 0 }];
+  if (w.waypoints) {
+    w.waypoints.forEach(function (wp) { absPts.push({ x: wp.x, y: wp.y }); });
+  }
+  absPts.push({ x: w.end_x || 0, y: w.end_y || 0 });
+
+  var lMinX = absPts[0].x, lMinY = absPts[0].y;
+  var lMaxX = absPts[0].x, lMaxY = absPts[0].y;
+  for (var i = 1; i < absPts.length; i++) {
+    lMinX = Math.min(lMinX, absPts[i].x);
+    lMinY = Math.min(lMinY, absPts[i].y);
+    lMaxX = Math.max(lMaxX, absPts[i].x);
+    lMaxY = Math.max(lMaxY, absPts[i].y);
+  }
+  var lPad = Math.max((w.thickness || 2), (w.dot_size || 6)) + 10;
+  var lgx  = lMinX - lPad;
+  var lgy  = lMinY - lPad;
+  var lgw  = Math.max(1, lMaxX - lMinX + lPad * 2);
+  var lgh  = Math.max(1, lMaxY - lMinY + lPad * 2);
+
+  group.position({ x: lgx, y: lgy });
+  group.width(lgw);
+  group.height(lgh);
+  group._lineBBox = { x: lgx, y: lgy, w: lgw, h: lgh };
+
+  var konvaPts = [];
+  for (var j = 0; j < absPts.length; j++) {
+    konvaPts.push(absPts[j].x - lgx, absPts[j].y - lgy);
+  }
+
+  if (group._hitRect)   { group._hitRect.width(lgw); group._hitRect.height(lgh); }
+  if (group._hitLine)   { group._hitLine.points(konvaPts); }
+  if (group._trackLine) { group._trackLine.points(konvaPts); }
+  if (group._pointCircles) {
+    for (var k = 0; k < absPts.length && k < group._pointCircles.length; k++) {
+      group._pointCircles[k].position({ x: absPts[k].x - lgx, y: absPts[k].y - lgy });
+    }
+  }
 }
 
 function wireDrag(group, w) {
@@ -804,11 +1046,43 @@ function wireDrag(group, w) {
       var y = Math.round(group.y() / gridSize) * gridSize;
       group.position({ x: x, y: y });
     }
+    if (group._isLine) {
+      var ldx = group.x() - group._lineBBox.x;
+      var ldy = group.y() - group._lineBBox.y;
+      uiLayer.find('.lineSelRect').forEach(function (node) {
+        node.position({ x: group.x(), y: group.y() });
+      });
+      uiLayer.find('.lineHandle').forEach(function (node) {
+        node.position({ x: node._origX + ldx, y: node._origY + ldy });
+      });
+      uiLayer.batchDraw();
+    }
     stage.batchDraw();
   });
   group.on('dragend', function () {
     if (transforming) return;
     pushHistory();
+    if (group._isLine) {
+      // Translate all absolute point coords by the drag delta
+      var bbox = group._lineBBox;
+      var dx = Math.round(group.x()) - bbox.x;
+      var dy = Math.round(group.y()) - bbox.y;
+      if (dx !== 0 || dy !== 0) {
+        w.start_x = (w.start_x || 0) + dx;
+        w.start_y = (w.start_y || 0) + dy;
+        w.end_x   = (w.end_x   || 0) + dx;
+        w.end_y   = (w.end_y   || 0) + dy;
+        if (w.waypoints) {
+          w.waypoints.forEach(function (wp) {
+            wp.x = (wp.x || 0) + dx;
+            wp.y = (wp.y || 0) + dy;
+          });
+        }
+      }
+      updateProps(propsEl, [w], onPropChange, onDeleteSelected, onDuplicateSelected, undefined, config.theme, openThemeModal, openEntitySearch, openAttributeSearch);
+      renderPage();
+      return;
+    }
     w.x = Math.round(group.x());
     w.y = Math.round(group.y());
     updateProps(propsEl, [w], onPropChange, onDeleteSelected, onDuplicateSelected, undefined, config.theme, openThemeModal, openEntitySearch, openAttributeSearch);
@@ -818,6 +1092,33 @@ function wireDrag(group, w) {
 function wireSelect(group, w) {
   group.on('click', function (e) {
     e.cancelBubble = true;
+    var now = Date.now();
+    // Use module-level vars so the timestamp survives renderPage() destroying and
+    // recreating this group between the first and second click of a double-click.
+    var isDbl = (now - lastLineClickTs) < 350 && lastLineClickId === w.id;
+    lastLineClickTs = now;
+    lastLineClickId = w.id;
+
+    // Double-click on a line: insert a waypoint on the nearest segment
+    if (isDbl && w.type === 'line') {
+      var pos = group.getLayer().getRelativePointerPosition();
+      var pts = [{ x: w.start_x || 0, y: w.start_y || 0 }];
+      if (w.waypoints) {
+        w.waypoints.forEach(function (wp) { pts.push({ x: wp.x, y: wp.y }); });
+      }
+      pts.push({ x: w.end_x || 0, y: w.end_y || 0 });
+      var bestDist = Infinity, bestIdx = 0;
+      for (var si = 0; si < pts.length - 1; si++) {
+        var d = distPointToSegment(pos, pts[si], pts[si + 1]);
+        if (d < bestDist) { bestDist = d; bestIdx = si; }
+      }
+      if (!w.waypoints) w.waypoints = [];
+      w.waypoints.splice(bestIdx, 0, { x: Math.round(pos.x), y: Math.round(pos.y) });
+      pushHistory();
+      renderPage();
+      return;
+    }
+
     var additive = !!(e.evt && e.evt.shiftKey);
     setSelection(w.id, additive);
     renderPage();
@@ -3046,6 +3347,20 @@ function addWidget(type) {
     w.period = 'day';
     w.value_field = 'sum';
     w.aggregate = 'sum';
+  }
+  if (type === 'line') {
+    // Line uses start/end coords rather than x/y/w/h bounding box
+    w.start_x = Math.round(pos.x - 100);
+    w.start_y = Math.round(pos.y);
+    w.end_x   = Math.round(pos.x + 100);
+    w.end_y   = Math.round(pos.y);
+    w.color     = 'primary';
+    w.thickness = 2;
+    w.effect    = 'dot';
+    delete w.x;
+    delete w.y;
+    delete w.w;
+    delete w.h;
   }
 
   pushHistory();
