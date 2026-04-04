@@ -9,6 +9,7 @@ The label is the most versatile widget in HAven. It displays text, can show live
 - [Minimal Example](#minimal-example)
 - [Properties](#properties)
 - [Text and Icons](#text-and-icons)
+- [Text Overflow](#text-overflow)
 - [Entity Binding](#entity-binding)
 - [Value Formatting](#value-formatting)
 - [Attribute Source](#attribute-source)
@@ -49,12 +50,13 @@ A static label with no entity binding:
 | `background` | Background fill color as a theme token or hex value. |
 | `letter_spacing` | Letter spacing in pixels. |
 | `font_weight` | CSS font-weight value, e.g. `400`, `600`, or `bold`. |
+| `mode` | How to handle text that overflows the widget bounds: `crop` (default, clips silently), `dots` (ellipsis), or `wrap` (wraps to multiple lines). |
 | `animation` | Optional animation applied to the label (see [Animations](#animations)). |
 | `entity` | Primary HA entity ID. The label shows the entity's state and updates on every state change. |
 | `entity_attribute` | Attribute key to use as the value source instead of `state` (e.g. `media_title`). |
 | `entity2` | Secondary HA entity ID. The label re-renders when either entity changes. |
 | `format` | How to format the entity value (see [Value Formatting](#value-formatting)). |
-| `prefix` | Text prefix used with the `power_prefix` format. |
+| `action` | Action to perform when the label is tapped. Accepts the same action types as button: `navigate`, `service`, `automation`. When set, the label captures taps rather than passing them through. |
 | `overrides` | Ordered list of conditional override rules. See [Conditional Overrides](#conditional-overrides). |
 
 ---
@@ -77,6 +79,28 @@ Full MDI icon library: https://pictogrammers.com/library/mdi/
 
 ---
 
+## Text Overflow
+
+The `mode` property controls what happens when text is wider than the widget bounds.
+
+| Mode | Behaviour |
+|------|-----------|
+| `crop` | Default. Text is clipped silently at the widget edge. |
+| `dots` | Text is truncated with an ellipsis (`...`) when it overflows. Single line only. |
+| `wrap` | Text wraps to multiple lines within the widget bounds. Content is top-aligned with a small padding. |
+
+```json
+{ "type": "label", "mode": "dots", "text": "A very long label that might not fit", ... }
+```
+
+```json
+{ "type": "label", "mode": "wrap", "text": "Multi-line\ndescription text", ... }
+```
+
+For `wrap` mode, make the widget tall enough to show the expected number of lines. The widget does not auto-expand.
+
+---
+
 ## Entity Binding
 
 Set `entity` to a HA entity ID to display live state values. The label fetches the current state on page load and subscribes to `state_changed` events, updating automatically.
@@ -87,14 +111,13 @@ Set `entity` to a HA entity ID to display live state values. The label fetches t
   "type": "label",
   "x": 20, "y": 60, "w": 200, "h": 50,
   "entity": "sensor.outdoor_temperature",
-  "format": "none",
   "font_size": 36,
   "align": "center",
   "color": "text"
 }
 ```
 
-The `text` field acts as a placeholder shown before the entity value arrives. A value of `"--"` is a common convention.
+The `text` field acts as a placeholder shown before the entity value arrives. A value of `"--"` is a common convention. Once the entity value is available it always replaces `text`, regardless of whether `format` is set.
 
 ---
 
@@ -106,9 +129,10 @@ The `format` property transforms the raw entity state before display:
 |--------|----------------|-------|
 | `power` | `948 w` or `1.23 kW` | Auto-scales watts to kilowatts above 1000 |
 | `power_abs` | `948 w` or `1.23 kW` | Same but uses absolute value (useful for bidirectional sensors) |
-| `power_prefix` | `Solar: 1.23 kW` | Power value preceded by the `prefix` field |
 | `kwh` | `25.0 kWh` | |
 | `percent` | `89%` | |
+| `temp_c` | `21.5°C` or `22°C` | Decimal shown only when non-zero |
+| `temp_f` | `72.5°F` or `72°F` | Decimal shown only when non-zero |
 | `time_24` | `14:05` | Parses entity state as ISO datetime |
 | `time_12` | `2:05 PM` | |
 | `date_iso` | `2026-02-27` | |
@@ -183,6 +207,8 @@ A common use case is showing a total (primary) but changing color based on a liv
 
 Labels support `{{ ... }}` expressions in both `text` and `color` fields. Expressions are evaluated locally in the browser against the bound entity state, no HA templates or automations required.
 
+When `text` contains a template expression, `format` is ignored — the template expression controls the full output. Use the template to apply any formatting you need directly.
+
 ```json
 "text":  "{{ round(state, 1) }} °C"
 "color": "{{ state > 5000 ? 'danger' : (state > 1000 ? 'warning' : 'primary') }}"
@@ -223,7 +249,7 @@ A common pattern is to apply an animation only when an alert condition is active
 
 Labels support the full override system. The following properties can be changed by override rules:
 
-`text`, `color`, `background`, `font_size`, `opacity`, `border_color`, `border_width`, `animation`, `visible`
+`text`, `color`, `background`, `font_size`, `letter_spacing`, `opacity`, `border_color`, `border_width`, `animation`, `visible`
 
 See the [Conditional Overrides](overrides.md) reference for full condition syntax, logic options, and source types.
 
@@ -248,6 +274,8 @@ See the [Conditional Overrides](overrides.md) reference for full condition synta
 
 ### Live power reading with color and icon
 
+Use a template expression to combine an icon with a formatted value. The `[small:unit]` syntax renders the unit as a superscript-style span:
+
 ```json
 {
   "id": "solar_power",
@@ -258,7 +286,36 @@ See the [Conditional Overrides](overrides.md) reference for full condition synta
   "align": "right",
   "color": "icon_inactive",
   "entity": "sensor.pv_power",
+  "overrides": [
+    {
+      "when": { "logic": "all", "conditions": [ { "type": "above", "value": 0 } ] },
+      "set": {
+        "color": "primary",
+        "text": "[mdi:solar-panel]&nbsp;{{ state < 1000 ? round(state) + '[small:w]' : round(state/1000,1) + '[small:kW]' }}"
+      }
+    },
+    {
+      "when": { "logic": "all", "conditions": [ { "type": "above", "value": 5000 } ] },
+      "set": {
+        "color": "warning",
+        "text": "[mdi:solar-panel]&nbsp;{{ round(state/1000,1) }}[small:kW]"
+      }
+    }
+  ]
+}
+```
+
+Alternatively, if you don't need the icon, use `format: "power"` and let the entity value replace `text` automatically:
+
+```json
+{
+  "id": "solar_power",
+  "type": "label",
+  "entity": "sensor.pv_power",
   "format": "power",
+  "text": "--",
+  "font_size": 48,
+  "color": "icon_inactive",
   "overrides": [
     {
       "when": { "logic": "all", "conditions": [ { "type": "above", "value": 0 } ] },

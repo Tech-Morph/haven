@@ -30,7 +30,7 @@ Most dashboards flex and reflow to fit whatever screen they land on. HAven takes
 - **Fixed canvas, pixel-perfect layouts:** design at any resolution, HAven scales to fit any screen
 - **Config-driven:** everything defined in JSON, no code changes needed to build dashboards
 - **Live HA data:** WebSocket connection with surgical DOM updates; only widgets bound to a changed entity update
-- **13 widget types:** label, button, switch, slider, bar, arc, rectangle, image, camera, clock, scene, history chart, agenda
+- **15 widget types:** label, button, switch, slider, bar, arc, rectangle, image, camera, clock, scene, history chart, agenda, task, line
 - **Conditional overrides:** any widget property can change based on entity state, attributes, or page, using ordered rules with AND/OR logic
 - **Template expressions:** `{{ ... }}` in label text and color fields for calculated values
 - **MDI icons bundled locally:** works fully offline, no CDN required

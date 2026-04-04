@@ -14,6 +14,7 @@ Tappable widgets support an `action` property that fires when the widget is tapp
 - [Trigger an Automation](#trigger-an-automation)
 - [Call a Service](#call-a-service)
 - [Value Tokens](#value-tokens)
+- [Template Expressions in Data](#template-expressions-in-data)
 - [haven_command Events](#haven_command-events)
 
 ---
@@ -128,6 +129,65 @@ For `scene` widgets, `"$option"` in `action.data` is replaced with the selected 
     "data": { "repeat": "$option" }
   }
 }
+```
+
+---
+
+## Template Expressions in Data
+
+For `button` widgets with an `entity` set, `action.data` values can contain `{{ expr }}` template expressions. These are evaluated against the widget's entity state at the moment the button is tapped.
+
+This is useful for computed adjustments like incrementing a thermostat setpoint or a media player volume.
+
+```json
+{
+  "type": "button",
+  "label": "+1",
+  "entity": "climate.living_room",
+  "action": {
+    "type": "service",
+    "service": "climate.set_temperature",
+    "entity_id": "climate.living_room",
+    "data": { "temperature": "{{ attr.temperature + 1 }}" }
+  }
+}
+```
+
+A value that is a single `{{ expr }}` expression returns a typed result, so numbers are sent to HA as numbers (not strings).
+
+### Available variables
+
+| Variable | Value |
+|----------|-------|
+| `state` | Entity state value. Numeric when the state string parses as a number, otherwise a string. |
+| `state_str` | Entity state as a string, always. |
+| `attr.x` | Attribute `x` from the entity (e.g. `attr.temperature`, `attr.brightness`). |
+| `round(x, n)` | Round `x` to `n` decimal places. |
+| `min(a, b)` / `max(a, b)` | Clamp helpers. |
+| `abs(x)` / `floor(x)` / `ceil(x)` | Math helpers. |
+
+### Important notes
+
+These are JavaScript expressions, not Jinja2. Do not use pipe filters like `state | float` - they are not supported. `state` is already numeric when the entity state value is a number.
+
+For `climate` entities, `state` is the HVAC mode string (e.g. `"heat"`), not the temperature. Use `attr.temperature` to read the current setpoint:
+
+```json
+"data": { "temperature": "{{ attr.temperature - 1 }}" }
+```
+
+Thermostat +/- button pair example:
+
+```json
+{ "label": "-1", "entity": "climate.living_room",
+  "action": { "type": "service", "service": "climate.set_temperature",
+               "entity_id": "climate.living_room",
+               "data": { "temperature": "{{ attr.temperature - 1 }}" } } }
+
+{ "label": "+1", "entity": "climate.living_room",
+  "action": { "type": "service", "service": "climate.set_temperature",
+               "entity_id": "climate.living_room",
+               "data": { "temperature": "{{ attr.temperature + 1 }}" } } }
 ```
 
 ---

@@ -103,6 +103,12 @@ When a plain string is used, the value and the display label are both the string
 | `value` | The value sent to HA when this option is selected. Also used to match against the entity state. **Required.** |
 | `label` | Display text. Defaults to `value` if omitted. |
 | `icon` | MDI icon token shown before the label. Uses `[mdi:icon-name]` syntax. Optional. |
+| `selected_background` | Background color for this option when it is the active selection. Overrides the widget-level `selected_background`. |
+| `selected_color` | Text color for this option when it is the active selection. Overrides the widget-level `selected_color`. |
+| `option_background` | Background color for this option when it is not selected. Overrides the widget-level `option_background`. |
+| `option_color` | Text color for this option when it is not selected. Overrides the widget-level `option_color`. |
+
+Per-option color fields take priority over widget-level color properties. Widget-level properties still apply to any option that does not define its own colors.
 
 > **Note:** Icons are not shown in the `dropdown` layout, as native HTML `<select>` elements do not support icons.
 
@@ -252,7 +258,7 @@ Set `locked: true` to make all options non-interactive. In buttons layout the op
 
 Scenes support the full override system. The following properties can be changed by override rules:
 
-`background`, `opacity`, `locked`
+`background`, `opacity`, `locked`, `selected_background`, `selected_color`, `option_background`, `option_color`
 
 See the [Conditional Overrides](overrides.md) reference for full condition syntax, logic options, and source types.
 
@@ -340,6 +346,59 @@ See the [Conditional Overrides](overrides.md) reference for full condition synta
     "service": "select.select_option",
     "entity_id": "select.fan_speed",
     "data": { "option": "$option" }
+  }
+}
+```
+
+### HVAC mode selector with per-option colors
+
+Each HVAC mode gets its own highlight color. The widget-level `selected_background` acts as a fallback for any option that does not define its own:
+
+```json
+{
+  "id": "hvac_mode",
+  "type": "scene",
+  "x": 10, "y": 10, "w": 380, "h": 64,
+  "entity": "climate.living_room",
+  "value_attribute": "hvac_mode",
+  "layout": "buttons",
+  "options": [
+    {
+      "value": "off",
+      "label": "Off",
+      "icon": "[mdi:power]",
+      "selected_background": "surface2",
+      "selected_color": "text_muted"
+    },
+    {
+      "value": "heat",
+      "label": "Heat",
+      "icon": "[mdi:fire]",
+      "selected_background": "warning",
+      "selected_color": "background"
+    },
+    {
+      "value": "cool",
+      "label": "Cool",
+      "icon": "[mdi:snowflake]",
+      "selected_background": "#5BC0DE",
+      "selected_color": "background"
+    },
+    {
+      "value": "auto",
+      "label": "Auto",
+      "icon": "[mdi:thermostat-auto]",
+      "selected_background": "primary",
+      "selected_color": "background"
+    }
+  ],
+  "option_background": "surface2",
+  "option_color": "text_muted",
+  "action": {
+    "type": "service",
+    "service": "climate.set_hvac_mode",
+    "entity_id": "climate.living_room",
+    "data": { "hvac_mode": "$option" }
   }
 }
 ```

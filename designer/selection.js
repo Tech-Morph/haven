@@ -137,7 +137,7 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
     addText(container, 'entity_attribute', w.entity_attribute, onChange, { getEntity: function() { return w.entity; } });
     addText(container, 'entity2', w.entity2, onChange);
     addSelect(container, 'format', w.format,
-      ['', 'power', 'power_abs', 'power_prefix', 'kwh', 'percent',
+      ['', 'power', 'power_abs', 'kwh', 'percent', 'temp_c', 'temp_f',
        'time_24', 'time_12', 'date_iso', 'date_short', 'datetime_24', 'datetime_12'],
       onChange);
     addText(container, 'prefix', w.prefix, onChange);
@@ -336,8 +336,7 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
     addText(container, 'entity2', w.entity2, onChange);
     addText(container, 'value_attribute', w.value_attribute, onChange);
     addSelect(container, 'format', w.format,
-      ['', 'power', 'power_abs', 'power_prefix', 'kwh', 'percent',
-       'time_24', 'time_12', 'date_iso', 'date_short', 'datetime_24', 'datetime_12'],
+      ['', 'power', 'kwh', 'percent', 'temp_c', 'temp_f'],
       onChange);
     addPairRow(container,
       'min', makeNumberInput(w.min, function(v) { onChange('min', v); }),
@@ -363,6 +362,8 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
     addNumber(container, 'opacity', w.opacity, onChange);
 
     addSectionHeader(container, 'Marker');
+    addText(container, 'marker_entity', w.marker_entity, onChange);
+    addText(container, 'marker_attribute', w.marker_attribute, onChange);
     addText(container, 'marker_value_attribute', w.marker_value_attribute, onChange);
     addPairRow(container,
       'marker_color', makeTextInput(w.marker_color,   function(v) { onChange('marker_color', v); }),
@@ -560,6 +561,55 @@ export function updateProps(container, selection, onChange, onDelete, onDuplicat
       onChange('fullscreen_on_tap', checked ? true : undefined);
     });
     addJsonArrayButton(container, 'Fullscreen Views', w, 'fullscreen_views', onChange);
+  }
+
+  if (w.type === 'weather_forecast') {
+    addSectionHeader(container, 'Data');
+    addText(container, 'entity', w.entity, onChange);
+    addPairRow(container,
+      'forecast_type', makeSelectInput(w.forecast_type, ['daily', 'hourly'], function(v) { onChange('forecast_type', v); }),
+      'slots',         makeNumberInput(w.slots,                               function(v) { onChange('slots', v); })
+    );
+    addPairRow(container,
+      'refresh_interval', makeNumberInput(w.refresh_interval, function(v) { onChange('refresh_interval', v); }),
+      'forecast_scale',   makeNumberInput(w.forecast_scale,   function(v) { onChange('forecast_scale', v); })
+    );
+
+    addSectionHeader(container, 'Rows');
+    addCheckbox(container, 'show_labels', w.show_labels !== false, function(c) {
+      onChange('show_labels', c ? undefined : false);
+    });
+    addCheckbox(container, 'show_icons', w.show_icons !== false, function(c) {
+      onChange('show_icons', c ? undefined : false);
+    });
+    addRow(container, 'label_format', makeSelectInput(w.label_format, ['day', 'day_short', 'date', 'time'], function(v) { onChange('label_format', v); }));
+    addJsonArrayButton(container, 'extra_row', w, 'extra_row', onChange);
+
+    addSectionHeader(container, 'Chart');
+    addCheckbox(container, 'show_chart', w.show_chart !== false, function(c) {
+      onChange('show_chart', c ? undefined : false);
+    });
+    addCheckbox(container, 'show_legend', !!w.show_legend, function(c) {
+      onChange('show_legend', c ? true : undefined);
+    });
+    addCheckbox(container, 'dividers', w.dividers !== false, function(c) {
+      onChange('dividers', c ? undefined : false);
+    });
+    addJsonArrayButton(container, 'series', w, 'series', onChange);
+
+    addSectionHeader(container, 'Colors');
+    addPairRow(container,
+      'background',    makeTextInput(w.background,    function(v) { onChange('background', v); }),
+      'label_color',   makeTextInput(w.label_color,   function(v) { onChange('label_color', v); })
+    );
+    addPairRow(container,
+      'icon_color',      makeTextInput(w.icon_color,      function(v) { onChange('icon_color', v); }),
+      'extra_row_color', makeTextInput(w.extra_row_color, function(v) { onChange('extra_row_color', v); })
+    );
+    addPairRow(container,
+      'divider_color', makeTextInput(w.divider_color, function(v) { onChange('divider_color', v); }),
+      'radius',        makeNumberInput(w.radius,       function(v) { onChange('radius', v); })
+    );
   }
 
   if (w.type === 'agenda') {

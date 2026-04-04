@@ -29,6 +29,26 @@ var lastLineClickTs = 0;   // module-level: survives renderPage() group recreati
 var lastLineClickId = '';
 var widgetClipboard = null; // { items:[{widget,pageId}], copiedAt:number }
 var clipboardPasteCount = 0;
+
+var CLIPBOARD_KEY = 'haven_clipboard';
+
+function saveClipboardToStorage() {
+  try { localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(widgetClipboard)); } catch (e) {}
+}
+
+function loadClipboardFromStorage() {
+  try {
+    var raw = localStorage.getItem(CLIPBOARD_KEY);
+    if (raw) widgetClipboard = JSON.parse(raw);
+  } catch (e) {}
+}
+
+window.addEventListener('storage', function (e) {
+  if (e.key === CLIPBOARD_KEY) {
+    loadClipboardFromStorage();
+    updateHistoryButtons();
+  }
+});
 var rubberRect = null;        // Konva.Rect drawn during drag-to-select
 var rubberOrigin = null;      // { x, y } canvas coords where drag started
 var rubberMoved = false;      // true once the drag exceeds the threshold
@@ -253,6 +273,8 @@ var guides = [];
 init();
 
 function init() {
+  loadClipboardFromStorage();
+  updateHistoryButtons();
   var device = getDeviceFromQuery();
   var last = localStorage.getItem('haven_designer_last_device');
   if (device && device !== 'test-designer') {
@@ -3148,6 +3170,7 @@ function copySelectionToClipboard() {
   if (!items.length) return false;
   widgetClipboard = { items: items, copiedAt: Date.now() };
   clipboardPasteCount = 0;
+  saveClipboardToStorage();
   setStatus('Copied ' + items.length + ' widget' + (items.length === 1 ? '' : 's'), true);
   updateHistoryButtons();
   return true;

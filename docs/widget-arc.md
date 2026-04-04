@@ -55,7 +55,9 @@ A battery state of charge gauge:
 | `label_color` | Color of the static label text. Default: `text_muted`. |
 | `format` | How to format the center value. Accepts the same format strings as the label widget. |
 | `value_attribute` | Attribute key to read the value from instead of `state`. |
-| `marker_value_attribute` | Attribute key for a second value shown as a marker dot or tick on the arc. |
+| `marker_value_attribute` | Attribute key on `entity` for a second value shown as a marker on the arc. |
+| `marker_entity` | Separate HA entity to source the marker value from, instead of `entity`. |
+| `marker_attribute` | Attribute key to read from `marker_entity`. Omit to use `marker_entity`'s state directly. |
 | `marker_color` | Color of the marker. Default: `text`. |
 | `marker_size` | Size of the marker in pixels. Defaults to approximately 90% of `line_width`. |
 | `marker_style` | Marker shape: `dot` (default) or `tick`. |
@@ -121,6 +123,8 @@ The `format` property transforms the raw entity value shown at the center. It ac
 | `power` | `948 w` or `1.23 kW` |
 | `kwh` | `25.0 kWh` |
 | `percent` | `89%` |
+| `temp_c` | `21.5°C` or `22°C` |
+| `temp_f` | `72.5°F` or `72°F` |
 
 ```json
 { "format": "power" }
@@ -146,23 +150,45 @@ Set `value_attribute` to read the arc value from an entity attribute rather than
 
 ## Marker
 
-A marker can be placed on the arc to indicate a second value from the same entity, such as a target or setpoint alongside the current reading.
+A marker can be placed on the arc to indicate a second value, such as a setpoint alongside the current reading. The marker value can come from the same entity as the arc fill or from a completely separate entity.
 
-Set `marker_value_attribute` to the attribute that holds the second value. The marker is positioned on the arc at the corresponding angle.
+### Marker from the same entity
+
+Use `marker_value_attribute` to read the marker value from an attribute of `entity`:
 
 ```json
 {
   "entity": "climate.living_room",
   "value_attribute": "current_temperature",
   "marker_value_attribute": "temperature",
-  "min": 10,
-  "max": 35,
+  "min": 10, "max": 35,
   "marker_color": "warning",
   "marker_style": "tick",
-  "marker_size": 14,
   "label": "°C"
 }
 ```
+
+### Marker from a different entity
+
+Use `marker_entity` to source the marker from a separate HA entity. Add `marker_attribute` to read from a specific attribute of that entity, or omit it to use the entity's state directly.
+
+This is useful when the arc main value and the marker come from different devices - for example, showing a room temperature sensor as the arc fill with the HVAC setpoint as the marker:
+
+```json
+{
+  "entity": "sensor.zigbee_temp",
+  "entity2": "climate.living_room",
+  "marker_entity": "climate.living_room",
+  "marker_attribute": "temperature",
+  "min": 15, "max": 30,
+  "format": "temp_c",
+  "marker_color": "primary",
+  "marker_style": "tick",
+  "label": "Room"
+}
+```
+
+`entity2` is used here alongside `marker_entity` so that override conditions can reference the climate entity's attributes (e.g. `hvac_action`) using `source: "attribute2"`.
 
 ### Marker styles
 
@@ -271,6 +297,41 @@ See the [Conditional Overrides](overrides.md) reference for full condition synta
   "marker_color": "warning",
   "marker_style": "tick",
   "label": "°C"
+}
+```
+
+### Room temperature with HVAC setpoint marker (separate entities)
+
+```json
+{
+  "id": "hvac_gauge",
+  "type": "arc",
+  "x": 60, "y": 20, "w": 320, "h": 320,
+  "entity": "sensor.zigbee_temp",
+  "entity2": "climate.living_room",
+  "marker_entity": "climate.living_room",
+  "marker_attribute": "temperature",
+  "min": 7, "max": 35,
+  "start_angle": 135, "end_angle": 405,
+  "line_width": 18,
+  "format": "temp_c",
+  "color": "primary",
+  "background": "surface2",
+  "marker_color": "text_dim",
+  "marker_style": "tick",
+  "marker_size": 30,
+  "label": "Room",
+  "label_color": "text_muted",
+  "overrides": [
+    {
+      "when": { "conditions": [{ "source": "attribute2", "attribute": "hvac_action", "type": "equals", "value": "heating" }] },
+      "set": { "color": "warning" }
+    },
+    {
+      "when": { "conditions": [{ "source": "attribute2", "attribute": "hvac_action", "type": "equals", "value": "cooling" }] },
+      "set": { "color": "#5BC0DE" }
+    }
+  ]
 }
 ```
 

@@ -22,6 +22,7 @@
   var pendingStreamRequests = {};  // msgId -> callback for camera/stream responses
   var pendingAgendaRequests = {};  // msgId -> callback for calendar/get_events responses
   var pendingTaskRequests   = {};  // msgId -> callback for todo/get_items responses
+  var pendingWeatherRequests = {}; // msgId -> callback for weather/get_forecasts responses
   var activePageTimers      = [];  // setInterval IDs to clear on page change
   var entityStates = {};      // entityId -> stateObject (cached)
   var INTERNAL_CONN_ENTITY = 'internal.connectionstatus';
@@ -424,6 +425,7 @@
           delete pendingStreamRequests[activePageTimers[t].pendingIds[p]];
           delete pendingAgendaRequests[activePageTimers[t].pendingIds[p]];
           delete pendingTaskRequests[activePageTimers[t].pendingIds[p]];
+          delete pendingWeatherRequests[activePageTimers[t].pendingIds[p]];
         }
       }
     }
@@ -1013,7 +1015,8 @@
       case 'arc':          renderArc(contentEl, w);          break;
       case 'agenda':       renderAgenda(contentEl, w);       break;
       case 'tasks':        renderTasks(contentEl, w);        break;
-      case 'history_chart': renderHistoryChart(contentEl, w); break;
+      case 'history_chart':    renderHistoryChart(contentEl, w);    break;
+      case 'weather_forecast': renderWeatherForecast(contentEl, w); break;
       case 'line':          renderLine(contentEl, w);         break;
       default:
         contentEl.style.background = 'rgba(255,0,0,0.3)';
@@ -1250,8 +1253,10 @@
     var s = overrides || {};
     var textOverride = (s.text !== undefined) ? String(s.text) : null;
     var useTemplateText = (w.text && hasTemplate(w.text));
-    var hasTextOverrideRule = !!(w.overrides && w.overrides.length && w.overrides.some(function(r) { return r.set && r.set.text !== undefined; }));
-    var baseFallback = (w.text && !w.format && !useTemplateText && hasTextOverrideRule) ? w.text : formatValue(val, w);
+    // text is always a placeholder: shown when no entity is bound or before it loads.
+    // Once an entity value is available it always wins, with or without format.
+    // For icon+value combos use template expressions: "text": "[mdi:solar-panel] {{ state }}"
+    var baseFallback = formatValue(val, w);
     var baseText = textOverride !== null ? textOverride : (useTemplateText ? String(w.text) : baseFallback);
     var formatted = applyTemplate(baseText, state, state2);
     if (formatted.length === 1 && formatted.charCodeAt(0) >= 0xF000 && formatted.charCodeAt(0) <= 0xF8FF) {
@@ -1651,6 +1656,7 @@
     function startDrag(e) {
       if (sliderLocked) return;
       e.preventDefault();
+      e.stopPropagation();
       isDragging = true;
       lastSentValue = null;
       updateFromPointer(e, false);
@@ -1884,6 +1890,19 @@
         labelEl.style.display = 'flex';
         labelEl.style.fontSize = labelSize + 'px';
         labelEl.style.color = resolveColor(cfg.label_color);
+        // Align label to the side opposite the thumb so it never overlaps it.
+        // Large padding goes on the thumb side to prevent text sliding under it.
+        if (isOn) {
+          labelEl.style.justifyContent = 'flex-start';
+          labelEl.style.textAlign = 'left';
+          labelEl.style.paddingLeft = (pad + 8) + 'px';
+          labelEl.style.paddingRight = (pad + thumbSize + 4) + 'px';
+        } else {
+          labelEl.style.justifyContent = 'flex-end';
+          labelEl.style.textAlign = 'right';
+          labelEl.style.paddingLeft = (pad + thumbSize + 4) + 'px';
+          labelEl.style.paddingRight = (pad + 8) + 'px';
+        }
         setContent(labelEl, applyTemplate(labelText, state));
       } else {
         labelEl.style.display = 'none';
@@ -2031,6 +2050,7 @@
     var options = normalizeSceneOptions(w.options);
     var currentValue = null;
     var sceneLocked = !!w.locked;
+    var activeSceneOverride = {};
     var controls = [];
     var pickerButton = null;
     var pickerIconEl = null;
@@ -2054,7 +2074,11 @@
             value: v,
             raw_value: it.value,
             label: (it.label !== undefined && it.label !== null) ? String(it.label) : (it.icon ? null : v),
-            icon: (it.icon !== undefined && it.icon !== null) ? String(it.icon) : ''
+            icon: (it.icon !== undefined && it.icon !== null) ? String(it.icon) : '',
+            selected_background: it.selected_background || null,
+            selected_color:      it.selected_color      || null,
+            option_background:   it.option_background   || null,
+            option_color:        it.option_color        || null
           });
         }
       }
@@ -2090,20 +2114,30 @@
 
     function applySceneStyle() {
       var state = w.entity ? entityStates[w.entity] : null;
-      var ovr = resolveOverrides(w, state) || {};
-      var bg = (ovr.background !== undefined) ? ovr.background : (w.background || 'transparent');
-      sceneLocked = (ovr.locked !== undefined) ? !!ovr.locked : !!w.locked;
+      activeSceneOverride = resolveOverrides(w, state) || {};
+      var bg = (activeSceneOverride.background !== undefined) ? activeSceneOverride.background : (w.background || 'transparent');
+      sceneLocked = (activeSceneOverride.locked !== undefined) ? !!activeSceneOverride.locked : !!w.locked;
       el.style.background = resolveColor(bg);
       el.style.cursor = sceneLocked ? 'not-allowed' : 'default';
-      if (ovr.opacity !== undefined) el.style.opacity = ovr.opacity;
+      if (activeSceneOverride.opacity !== undefined) el.style.opacity = activeSceneOverride.opacity;
       else if (w.opacity !== undefined) el.style.opacity = w.opacity;
     }
 
-    function optionVisual(button, isActive) {
-      var activeBg = resolveColor(w.selected_background || 'primary');
-      var activeFg = resolveColor(w.selected_color || 'background');
-      var bg = resolveColor(w.option_background || 'surface2');
-      var fg = resolveColor(w.option_color || 'text');
+    function optionVisual(button, isActive, opt) {
+      var ovr = activeSceneOverride;
+      // Priority: per-option → override → widget default → hardcoded fallback
+      var activeBg = resolveColor(
+        (opt && opt.selected_background) ||
+        (ovr.selected_background !== undefined ? ovr.selected_background : w.selected_background) || 'primary');
+      var activeFg = resolveColor(
+        (opt && opt.selected_color) ||
+        (ovr.selected_color !== undefined ? ovr.selected_color : w.selected_color) || 'background');
+      var bg = resolveColor(
+        (opt && opt.option_background) ||
+        (ovr.option_background !== undefined ? ovr.option_background : w.option_background) || 'surface2');
+      var fg = resolveColor(
+        (opt && opt.option_color) ||
+        (ovr.option_color !== undefined ? ovr.option_color : w.option_color) || 'text');
       button.style.background = isActive ? activeBg : bg;
       button.style.color = isActive ? activeFg : fg;
     }
@@ -2113,7 +2147,7 @@
       for (var i = 0; i < controls.length; i++) {
         var c = controls[i];
         if (c.kind === 'button') {
-          optionVisual(c.el, String(c.option.value) === String(currentValue));
+          optionVisual(c.el, String(c.option.value) === String(currentValue), c.option);
           c.el.disabled = sceneLocked;
           c.el.style.cursor = sceneLocked ? 'not-allowed' : 'pointer';
           c.el.style.opacity = sceneLocked ? '0.6' : '1';
@@ -2328,7 +2362,7 @@
           item.style.cursor = 'pointer';
           item.style.fontFamily = 'inherit';
           setContent(item, optionText(opt));
-          optionVisual(item, String(opt.value) === String(currentValue));
+          optionVisual(item, String(opt.value) === String(currentValue), opt);
           item.addEventListener('click', function() {
             selectOption(opt.value);
             closePickerModal();
@@ -2548,7 +2582,12 @@
     if (w.action) {
       el.addEventListener('click', function () {
         if (buttonLocked) return;
-        handleAction(w.action);
+        var action = w.action;
+        if (action.data && w.entity && hasTemplate(JSON.stringify(action.data))) {
+          action = JSON.parse(JSON.stringify(action));
+          action.data = resolveActionData(action.data, entityStates[w.entity] || null);
+        }
+        handleAction(action);
         resetReturnTimer();
       });
       el.addEventListener('mousedown',  function() { if (!buttonLocked) el.style.opacity = '0.75'; });
@@ -2593,13 +2632,15 @@
     el.className += ' widget-arc';
     el.style.overflow = 'visible';
 
-    var min        = w.min !== undefined ? w.min : 0;
-    var max        = w.max !== undefined ? w.max : 100;
-    var valueAttr  = w.value_attribute;
-    var startAngle = w.start_angle !== undefined ? w.start_angle : 135;
-    var endAngle   = w.end_angle   !== undefined ? w.end_angle   : 405;
-    var lineWidth  = w.line_width  !== undefined ? w.line_width  : 12;
-    var trackColor = resolveColor(w.background || 'surface2');
+    var min           = w.min !== undefined ? w.min : 0;
+    var max           = w.max !== undefined ? w.max : 100;
+    var valueAttr     = w.value_attribute;
+    var markerEntityId = w.marker_entity || null;
+    var markerAttrName = w.marker_attribute || null;
+    var startAngle    = w.start_angle !== undefined ? w.start_angle : 135;
+    var endAngle      = w.end_angle   !== undefined ? w.end_angle   : 405;
+    var lineWidth     = w.line_width  !== undefined ? w.line_width  : 12;
+    var trackColor    = resolveColor(w.background || 'surface2');
 
     // SVG coordinate system: cx/cy at centre, r fits inside widget
     var size = Math.min(w.w, w.h);
@@ -2687,7 +2728,7 @@
     }
 
     // Update function - called on entity state change
-    function updateArc(state, state2) {
+    function updateArc(state, state2, markerState) {
       if (!state) return;
       var s = resolveOverrides(w, state, state2) || {};
       var rawValue = readArcValue(state, valueAttr);
@@ -2717,16 +2758,18 @@
       setContent(numEl, formatValue(rawValue, w));
       numEl.style.color = arcColor;
 
-      var markerAttr = (s.marker_value_attribute !== undefined) ? s.marker_value_attribute : w.marker_value_attribute;
-      var markerRaw = readArcValue(state, markerAttr);
-      var markerNum = parseFloat(markerRaw);
+      // marker_entity/marker_attribute take priority over legacy marker_value_attribute
+      var markerSrc  = markerState || state;
+      var markerAttr = markerAttrName || ((s.marker_value_attribute !== undefined) ? s.marker_value_attribute : w.marker_value_attribute);
+      var markerRaw  = readArcValue(markerSrc, markerAttr);
+      var markerNum  = parseFloat(markerRaw);
       var markerStyle = String((s.marker_style !== undefined) ? s.marker_style : (w.marker_style || 'dot')).toLowerCase();
       if (markerStyle !== 'tick') markerStyle = 'dot';
       var markerColor = resolveColor((s.marker_color !== undefined) ? s.marker_color : (w.marker_color || 'text'));
       var markerSize = parseFloat((s.marker_size !== undefined) ? s.marker_size : (w.marker_size !== undefined ? w.marker_size : Math.max(8, Math.round(lineWidth * 0.9))));
       if (isNaN(markerSize) || markerSize <= 0) markerSize = Math.max(8, Math.round(lineWidth * 0.9));
 
-      if (markerAttr && !isNaN(markerNum)) {
+      if ((markerAttr || markerEntityId) && !isNaN(markerNum)) {
         var mVal = Math.max(min, Math.min(max, markerNum));
         var mPct = (mVal - min) / spanVal;
         var mAng = startAngle + mPct * (endAngle - startAngle);
@@ -2764,16 +2807,18 @@
       }
     }
 
-    if (w.entity || w.entity2) {
-      var arcStateCache  = w.entity  ? (entityStates[w.entity]  || null) : null;
-      var arcState2Cache = w.entity2 ? (entityStates[w.entity2] || null) : null;
+    if (w.entity || w.entity2 || markerEntityId) {
+      var arcStateCache    = w.entity        ? (entityStates[w.entity]        || null) : null;
+      var arcState2Cache   = w.entity2       ? (entityStates[w.entity2]       || null) : null;
+      var markerStateCache = markerEntityId  ? (entityStates[markerEntityId]  || null) : null;
 
       function doArcUpdate() {
-        updateArc(arcStateCache, arcState2Cache);
+        updateArc(arcStateCache, arcState2Cache, markerStateCache);
       }
 
-      if (w.entity)  registerEntityCallback(w.entity,  function(s) { arcStateCache  = s; doArcUpdate(); });
-      if (w.entity2) registerEntityCallback(w.entity2, function(s) { arcState2Cache = s; doArcUpdate(); });
+      if (w.entity)       registerEntityCallback(w.entity,       function(s) { arcStateCache    = s; doArcUpdate(); });
+      if (w.entity2)      registerEntityCallback(w.entity2,      function(s) { arcState2Cache   = s; doArcUpdate(); });
+      if (markerEntityId) registerEntityCallback(markerEntityId, function(s) { markerStateCache = s; doArcUpdate(); });
 
       // Apply cached state immediately (handles page nav after WS already connected)
       if (arcStateCache) doArcUpdate();
@@ -5605,6 +5650,448 @@
     svg.innerHTML = parts.join('');
   }
 
+  // -- Weather Forecast --
+  var WF_COND_ICON = {
+    'sunny':           'mdi:weather-sunny',
+    'clear-night':     'mdi:weather-night',
+    'cloudy':          'mdi:weather-cloudy',
+    'partlycloudy':    'mdi:weather-partly-cloudy',
+    'fog':             'mdi:weather-fog',
+    'hail':            'mdi:weather-hail',
+    'lightning':       'mdi:weather-lightning',
+    'lightning-rainy': 'mdi:weather-lightning-rainy',
+    'pouring':         'mdi:weather-pouring',
+    'rainy':           'mdi:weather-rainy',
+    'snowy':           'mdi:weather-snowy',
+    'snowy-rainy':     'mdi:weather-snowy-rainy',
+    'windy':           'mdi:weather-windy',
+    'windy-variant':   'mdi:weather-windy-variant',
+    'exceptional':     'mdi:alert-circle-outline'
+  };
+
+  var WF_EXTRA_ICON = {
+    'precipitation': 'mdi:water',
+    'wind_speed':    'mdi:weather-windy',
+    'wind_bearing':  'mdi:compass',
+    'humidity':      'mdi:water-percent',
+    'uv_index':      'mdi:white-balance-sunny',
+    'temperature':   'mdi:thermometer-chevron-up',
+    'templow':       'mdi:thermometer-chevron-down',
+    'condition':     null
+  };
+
+  function wfConditionIcon(cond) {
+    return WF_COND_ICON[cond] || ('mdi:weather-' + (cond || 'cloudy'));
+  }
+
+  function wfFormatLabel(dt, fmt) {
+    var d = new Date(dt);
+    if (isNaN(d.getTime())) return '';
+    var daysShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var daysFull  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (fmt === 'date')      return d.getDate() + ' ' + months[d.getMonth()];
+    if (fmt === 'day_short') return daysShort[d.getDay()];
+    if (fmt === 'time')      return (d.getHours() < 10 ? '0' : '') + d.getHours() + ':00';
+    return daysFull[d.getDay()]; // 'day' default
+  }
+
+  function wfFormatTemp(val) {
+    var n = parseFloat(val);
+    if (isNaN(n)) return '--';
+    return (n % 1 === 0 ? Math.round(n) : n.toFixed(1)) + '\u00b0';
+  }
+
+  function wfSafeNum(v) {
+    var n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  }
+
+  var WF_TEMP_GROUP = { 'temperature': true, 'templow': true };
+
+  function wfFmtVal(val, metric) {
+    if (WF_TEMP_GROUP[metric])      return wfFormatTemp(val);
+    if (metric === 'wind_speed')    return Math.round(val) + 'km/h';
+    if (metric === 'wind_bearing')  return Math.round(val) + '\u00b0';
+    if (metric === 'humidity')      return Math.round(val) + '%';
+    if (metric === 'precipitation') return val.toFixed(1) + 'mm';
+    if (metric === 'uv_index')      return String(Math.round(val));
+    return val % 1 === 0 ? String(val) : val.toFixed(1);
+  }
+
+  function renderWeatherForecast(el, w) {
+    el.className += ' widget-weather-forecast';
+    el.style.background   = resolveColor(w.background || 'surface');
+    el.style.borderRadius = (w.radius !== undefined ? w.radius : 8) + 'px';
+    el.style.overflow     = 'hidden';
+
+    var inner = document.createElement('div');
+    inner.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+    el.appendChild(inner);
+
+    // Loading placeholder
+    inner.style.display        = 'flex';
+    inner.style.alignItems     = 'center';
+    inner.style.justifyContent = 'center';
+    inner.style.fontSize       = '12px';
+    inner.style.color          = resolveColor('text_muted');
+    inner.textContent          = 'loading\u2026';
+
+    var timerRef = { id: null, pendingIds: [] };
+    activePageTimers.push(timerRef);
+
+    fetchWeatherForecast(w, inner, timerRef, 20);
+
+    var refreshMs = (w.refresh_interval || 1800) * 1000;
+    timerRef.id = setInterval(function() {
+      fetchWeatherForecast(w, inner, timerRef, 0);
+    }, refreshMs);
+  }
+
+  function fetchWeatherForecast(w, inner, timerRef, retries) {
+    if (!ws || ws.readyState !== 1) {
+      if (retries > 0) {
+        setTimeout(function() { fetchWeatherForecast(w, inner, timerRef, retries - 1); }, 2000);
+      }
+      return;
+    }
+    var id = msgId++;
+    timerRef.pendingIds.push(id);
+    pendingWeatherRequests[id] = function(result) {
+      var idx = timerRef.pendingIds.indexOf(id);
+      if (idx !== -1) timerRef.pendingIds.splice(idx, 1);
+      if (!result) return;
+      var response = (result.response !== undefined) ? result.response : result;
+      var entityData = response[w.entity] || {};
+      var forecast = entityData.forecast || [];
+      if (!forecast.length) return;
+      updateWeatherForecast(inner, w, forecast);
+    };
+    wsSend({
+      id:           id,
+      type:         'call_service',
+      domain:       'weather',
+      service:      'get_forecasts',
+      service_data: { entity_id: w.entity, type: w.forecast_type || 'daily' },
+      return_response: true
+    });
+  }
+
+  function updateWeatherForecast(inner, w, forecast) {
+    var totalW     = w.w || 300;
+    var totalH     = w.h || 160;
+    var slots      = Math.min(w.slots || 6, forecast.length);
+    var slotW      = Math.floor(totalW / slots);
+    var labelFmt   = w.label_format || ((w.forecast_type === 'hourly') ? 'time' : 'day');
+    var extraRow   = (w.extra_row && w.extra_row.length) ? w.extra_row : [];
+    var showLabels = (w.show_labels !== false);
+    var showIcons  = (w.show_icons  !== false);
+    var showChart  = (w.show_chart  !== false);
+    var series     = w.series || [];
+
+    var scaleRaw = (w.forecast_scale !== undefined) ? w.forecast_scale : 1;
+    var scale = parseFloat(scaleRaw);
+    if (isNaN(scale) || scale <= 0) scale = 1;
+    function sc(px) { return Math.max(1, Math.round(px * scale)); }
+
+    var showLegend = (w.show_legend === true) && series.length > 0 && showChart;
+    var LABEL_H   = showLabels ? sc(18) : 0;
+    var ICON_H    = showIcons  ? sc(38) : 0;
+    var LEGEND_H  = showLegend ? sc(24) : 0;
+    var EXTRA_ITEM_H = extraRow.length > 2 ? sc(16) : (extraRow.length > 1 ? sc(18) : sc(22));
+    var EXTRA_H = extraRow.length > 0 ? (EXTRA_ITEM_H * extraRow.length) : 0;
+    var CHART_H = Math.max(0, totalH - LABEL_H - ICON_H - LEGEND_H - EXTRA_H);
+    if (!showChart) CHART_H = 0;
+
+    var labelColor    = resolveColor(w.label_color    || 'text_muted');
+    var iconColor     = resolveColor(w.icon_color     || 'text');
+    var extraColor    = resolveColor(w.extra_row_color || 'text_muted');
+    var dividerColor  = resolveColor(w.divider_color  || 'surface2');
+
+    inner.innerHTML = '';
+    inner.style.display = '';
+
+    // -- Labels row --
+    if (showLabels) {
+      for (var i = 0; i < slots; i++) {
+        var lbl = document.createElement('div');
+        lbl.style.cssText = 'position:absolute;top:0;left:' + (i * slotW) + 'px;width:' + slotW + 'px;' +
+          'height:' + LABEL_H + 'px;line-height:' + LABEL_H + 'px;text-align:center;' +
+          'font-size:' + sc(11) + 'px;color:' + labelColor + ';overflow:hidden;white-space:nowrap;';
+        lbl.textContent = wfFormatLabel(forecast[i].datetime, labelFmt);
+        inner.appendChild(lbl);
+      }
+    }
+
+    // -- Icons row --
+    if (showIcons) {
+      var iconTop = LABEL_H;
+      for (var i = 0; i < slots; i++) {
+        var iconDiv = document.createElement('div');
+        iconDiv.style.cssText = 'position:absolute;top:' + iconTop + 'px;left:' + (i * slotW) + 'px;' +
+          'width:' + slotW + 'px;height:' + ICON_H + 'px;line-height:' + ICON_H + 'px;' +
+          'text-align:center;font-size:' + Math.round(ICON_H * 0.55) + 'px;color:' + iconColor + ';';
+        setContent(iconDiv, '[' + wfConditionIcon(forecast[i].condition || '') + ']');
+        inner.appendChild(iconDiv);
+      }
+    }
+
+    // -- Chart area --
+    if (showChart && CHART_H > 20 && series.length > 0) {
+      var chartTop = LABEL_H + ICON_H;
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width',  totalW);
+      svg.setAttribute('height', CHART_H);
+      svg.style.cssText = 'position:absolute;top:' + chartTop + 'px;left:0;overflow:visible;';
+      inner.appendChild(svg);
+
+      var PAD_TOP = sc(14);
+      var PAD_BOT = sc(4);
+      var innerH  = CHART_H - PAD_TOP - PAD_BOT;
+      if (innerH < 4) innerH = 4;
+
+      // Collect values for all series
+      var seriesVals = [];
+      for (var s = 0; s < series.length; s++) {
+        var sv = [];
+        for (var i = 0; i < slots; i++) {
+          sv.push(wfSafeNum(forecast[i][series[s].metric]));
+        }
+        seriesVals.push(sv);
+      }
+
+      // Shared scale for temperature-family metrics
+      var tempAllVals = [];
+      for (var s = 0; s < series.length; s++) {
+        if (WF_TEMP_GROUP[series[s].metric]) {
+          for (var i = 0; i < seriesVals[s].length; i++) {
+            if (seriesVals[s][i] !== null) tempAllVals.push(seriesVals[s][i]);
+          }
+        }
+      }
+      var tempMin = tempAllVals.length ? Math.min.apply(null, tempAllVals) : 0;
+      var tempMax = tempAllVals.length ? Math.max.apply(null, tempAllVals) : 1;
+      for (var s = 0; s < series.length; s++) {
+        if (WF_TEMP_GROUP[series[s].metric]) {
+          if (series[s].min !== undefined) tempMin = Math.min(tempMin, parseFloat(series[s].min));
+          if (series[s].max !== undefined) tempMax = Math.max(tempMax, parseFloat(series[s].max));
+        }
+      }
+      var tempRange = (tempMax - tempMin) || 1;
+
+      // Precompute per-series scale bounds for non-temp series
+      var seriesScale = [];
+      for (var s = 0; s < series.length; s++) {
+        if (WF_TEMP_GROUP[series[s].metric]) { seriesScale.push(null); continue; }
+        var valid = [];
+        for (var i = 0; i < seriesVals[s].length; i++) {
+          if (seriesVals[s][i] !== null) valid.push(seriesVals[s][i]);
+        }
+        var mn = series[s].min !== undefined ? parseFloat(series[s].min) : (valid.length ? Math.min.apply(null, valid) : 0);
+        var mx = series[s].max !== undefined ? parseFloat(series[s].max) : (valid.length ? Math.max.apply(null, valid) : 1);
+        seriesScale.push({ mn: mn, mx: mx, rng: (mx - mn) || 1,
+          topPad: series[s].max !== undefined ? 0 : sc(6),
+          botPad: series[s].min !== undefined ? 0 : sc(6) });
+      }
+
+      // Compute Y coordinate for a value in a given series, clamped to chart bounds
+      function wfY(val, sIdx) {
+        var y;
+        if (WF_TEMP_GROUP[series[sIdx].metric]) {
+          y = PAD_TOP + (1 - (val - tempMin) / tempRange) * innerH;
+        } else {
+          var sc2 = seriesScale[sIdx];
+          if (!sc2) return PAD_TOP + Math.round(innerH / 2);
+          y = PAD_TOP + sc2.topPad + (1 - (val - sc2.mn) / sc2.rng) * (innerH - sc2.topPad - sc2.botPad);
+        }
+        return Math.round(Math.max(PAD_TOP, Math.min(PAD_TOP + innerH, y)));
+      }
+
+      // Hidden series state (index -> true), pre-populated from config
+      var hiddenSeries = {};
+      for (var s = 0; s < series.length; s++) {
+        if (series[s].hidden) hiddenSeries[s] = true;
+      }
+
+      function buildChartSVG() {
+        var parts = [];
+
+        // Slot dividers
+        if (w.dividers !== false) {
+          for (var i = 1; i < slots; i++) {
+            var dx = i * slotW;
+            parts.push('<line x1="' + dx + '" y1="0" x2="' + dx + '" y2="' + CHART_H +
+              '" stroke="' + dividerColor + '" stroke-width="1"/>');
+          }
+        }
+
+        // Render bars first (behind lines), then lines
+        var renderOrder = [];
+        for (var s = 0; s < series.length; s++) {
+          if ((series[s].style || 'line') === 'bar') renderOrder.unshift(s);
+          else renderOrder.push(s);
+        }
+
+        for (var ro = 0; ro < renderOrder.length; ro++) {
+          var s = renderOrder[ro];
+          if (hiddenSeries[s]) continue;
+          var sr     = series[s];
+          var sVals  = seriesVals[s];
+          var sColor = resolveColor(sr.color || 'primary');
+          var sStyle = sr.style || 'line';
+
+          if (sStyle === 'bar') {
+            var validV = [];
+            for (var i = 0; i < sVals.length; i++) {
+              if (sVals[i] !== null) validV.push(sVals[i]);
+            }
+            var barMin = sr.min !== undefined ? parseFloat(sr.min) : 0;
+            var barMax = sr.max !== undefined ? parseFloat(sr.max) : (validV.length ? Math.max.apply(null, validV) : 0);
+            var barRange = (barMax - barMin) || 1;
+            var barW = Math.round(slotW * 0.5);
+            var barOff = Math.round((slotW - barW) / 2);
+            for (var i = 0; i < slots; i++) {
+              if (sVals[i] === null || sVals[i] <= 0) continue;
+              var clampedVal = Math.min(sVals[i], barMax);
+              var bh = Math.round(((clampedVal - barMin) / barRange) * innerH);
+              if (bh < 1) bh = 1;
+              var by = PAD_TOP + innerH - bh;
+              parts.push('<rect x="' + (i * slotW + barOff) + '" y="' + by + '" width="' + barW +
+                '" height="' + bh + '" fill="' + sColor + '" rx="2"/>');
+              parts.push('<text x="' + (i * slotW + slotW / 2) + '" y="' + (by - 3) +
+                '" text-anchor="middle" font-size="' + sc(10) + '" fill="' + sColor + '">' +
+                wfFmtVal(sVals[i], sr.metric) + '</text>');
+            }
+
+          } else {
+            var dashAttr = sStyle === 'line_dashed' ? ' stroke-dasharray="5,4"' : '';
+            var points = [];
+            for (var i = 0; i < slots; i++) {
+              var cx = Math.round(i * slotW + slotW / 2);
+              if (sVals[i] !== null) {
+                points.push({ x: cx, y: wfY(sVals[i], s), valid: true });
+              } else {
+                points.push({ x: cx, y: 0, valid: false });
+              }
+            }
+            var seg = [];
+            for (var i = 0; i < points.length; i++) {
+              if (points[i].valid) {
+                seg.push(points[i].x + ',' + points[i].y);
+              } else if (seg.length >= 2) {
+                parts.push('<polyline points="' + seg.join(' ') + '" fill="none" stroke="' + sColor +
+                  '" stroke-width="2.5" stroke-linecap="round"' + dashAttr + '/>');
+                seg = [];
+              } else { seg = []; }
+            }
+            if (seg.length >= 2) {
+              parts.push('<polyline points="' + seg.join(' ') + '" fill="none" stroke="' + sColor +
+                '" stroke-width="2.5" stroke-linecap="round"' + dashAttr + '/>');
+            }
+            for (var i = 0; i < points.length; i++) {
+              if (!points[i].valid) continue;
+              var px = points[i].x; var py = points[i].y;
+              var flipUp = (py > PAD_TOP + innerH * 0.6);
+              var labelY = flipUp ? (py - sc(11)) : (py + sc(10) + sc(9));
+              parts.push('<text x="' + px + '" y="' + labelY +
+                '" text-anchor="middle" font-size="' + sc(10) + '" font-weight="600" fill="' + sColor + '">' +
+                wfFmtVal(sVals[i], sr.metric) + '</text>');
+              parts.push('<circle cx="' + px + '" cy="' + py + '" r="4" fill="' + sColor + '"/>');
+            }
+          }
+        }
+
+        svg.innerHTML = parts.join('');
+      }
+
+      buildChartSVG();
+
+      // -- Legend --
+      if (showLegend) {
+        var legendTop = LABEL_H + ICON_H + CHART_H;
+        var legendEl = document.createElement('div');
+        legendEl.style.cssText = 'position:absolute;top:' + legendTop + 'px;left:0;width:' + totalW + 'px;' +
+          'height:' + LEGEND_H + 'px;display:flex;align-items:center;justify-content:center;' +
+          'gap:' + sc(14) + 'px;';
+        inner.appendChild(legendEl);
+
+        for (var s = 0; s < series.length; s++) {
+          (function(sIdx) {
+            var sr = series[sIdx];
+            var sColor = resolveColor(sr.color || 'primary');
+            var sStyle = sr.style || 'line';
+            var sLabel = sr.label || (sr.metric.charAt(0).toUpperCase() + sr.metric.slice(1).replace(/_/g, ' '));
+
+            var item = document.createElement('div');
+            item.style.cssText = 'display:flex;align-items:center;gap:' + sc(4) + 'px;' +
+              'cursor:pointer;user-select:none;';
+
+            // Indicator SVG
+            var indW = sc(20); var indH = sc(10);
+            var indSvg;
+            if (sStyle === 'bar') {
+              indSvg = '<svg width="' + indW + '" height="' + indH + '">' +
+                '<rect x="' + Math.round(indW * 0.2) + '" y="1" width="' + Math.round(indW * 0.6) + '" height="' + (indH - 2) + '" ' +
+                'fill="' + sColor + '" fill-opacity="0.7" rx="2"/></svg>';
+            } else {
+              var dash = sStyle === 'line_dashed' ? ' stroke-dasharray="4,3"' : '';
+              var mid = Math.round(indH / 2);
+              indSvg = '<svg width="' + indW + '" height="' + indH + '">' +
+                '<line x1="0" y1="' + mid + '" x2="' + indW + '" y2="' + mid + '" stroke="' + sColor + '" stroke-width="2.5" stroke-linecap="round"' + dash + '/>' +
+                '<circle cx="' + Math.round(indW / 2) + '" cy="' + mid + '" r="3" fill="' + sColor + '"/></svg>';
+            }
+            item.innerHTML = indSvg;
+
+            var lbl = document.createElement('span');
+            lbl.style.cssText = 'font-size:' + sc(10) + 'px;color:' + sColor + ';';
+            lbl.textContent = sLabel;
+            item.appendChild(lbl);
+
+            if (hiddenSeries[sIdx]) item.style.opacity = '0.35';
+
+            item.addEventListener('click', function() {
+              hiddenSeries[sIdx] = !hiddenSeries[sIdx];
+              item.style.opacity = hiddenSeries[sIdx] ? '0.35' : '1';
+              buildChartSVG();
+            });
+
+            legendEl.appendChild(item);
+          })(s);
+        }
+      }
+    }
+
+    // -- Extra row --
+    if (extraRow.length > 0) {
+      var extraTop = LABEL_H + ICON_H + (showChart ? CHART_H : 0) + LEGEND_H;
+      var itemH = EXTRA_ITEM_H;
+      for (var r = 0; r < extraRow.length; r++) {
+        var metric = extraRow[r];
+        for (var i = 0; i < slots; i++) {
+          var cell = document.createElement('div');
+          cell.style.cssText = 'position:absolute;top:' + (extraTop + r * itemH) + 'px;left:' + (i * slotW) + 'px;' +
+            'width:' + slotW + 'px;height:' + itemH + 'px;line-height:' + itemH + 'px;' +
+            'text-align:center;font-size:' + sc(extraRow.length > 2 ? 9 : extraRow.length > 1 ? 10 : 11) + 'px;color:' + extraColor + ';' +
+            'overflow:hidden;white-space:nowrap;' +
+            (w.dividers !== false && i < slots - 1 ? 'border-right:1px solid ' + dividerColor + ';' : '');
+          var icon = WF_EXTRA_ICON[metric];
+          var rawVal = forecast[i][metric];
+          var valStr = '--';
+          if (metric === 'condition') {
+            setContent(cell, '[' + wfConditionIcon(forecast[i].condition || '') + ']');
+            inner.appendChild(cell);
+            continue;
+          }
+          var n = wfSafeNum(rawVal);
+          if (n !== null) valStr = wfFmtVal(n, metric);
+          var content = icon ? ('[' + icon + ']&nbsp;' + valStr) : valStr;
+          setContent(cell, content);
+          inner.appendChild(cell);
+        }
+      }
+    }
+  }
+
   // -- Clock --
   function renderClock(el, w) {
     el.className += ' widget-clock';
@@ -5660,11 +6147,6 @@
           ? Math.round(num) + ' [small:w]'
           : (num / 1000).toFixed(1) + ' [small:kW]';
 
-      case 'power_prefix':
-        if (isNaN(num)) return prefix + '--';
-        return prefix + (num < 1000
-          ? Math.round(num) + ' [small:w]'
-          : (num / 1000).toFixed(1) + ' [small:kW]');
 
       case 'kwh':
         if (isNaN(num)) return '--';
@@ -5673,6 +6155,14 @@
       case 'percent':
         if (isNaN(num)) return '--%';
         return Math.round(num) + '[small:%]';
+
+      case 'temp_c':
+        if (isNaN(num)) return '--';
+        return (num % 1 === 0 ? Math.round(num) : num.toFixed(1)) + '[small:°C]';
+
+      case 'temp_f':
+        if (isNaN(num)) return '--';
+        return (num % 1 === 0 ? Math.round(num) : num.toFixed(1)) + '[small:°F]';
 
       default:
         return prefix + val;
@@ -6026,7 +6516,8 @@
     for (var i = 0; i < pageConfig.widgets.length; i++) {
       var w = pageConfig.widgets[i];
       if (w.entity)          entities[w.entity]          = true;
-      if (w.entity2)         entities[w.entity2]         = true;  // secondary entity
+      if (w.entity2)         entities[w.entity2]         = true;
+      if (w.marker_entity)   entities[w.marker_entity]   = true;
       if (w.snapshot_entity) entities[w.snapshot_entity] = true;
       if (w.stream_entity)   entities[w.stream_entity]   = true;
     }
@@ -6151,6 +6642,12 @@
           var taskCb = pendingTaskRequests[msg.id];
           delete pendingTaskRequests[msg.id];
           taskCb(msg.success ? msg.result : null);
+          break;
+        }
+        if (pendingWeatherRequests[msg.id]) {
+          var weatherCb = pendingWeatherRequests[msg.id];
+          delete pendingWeatherRequests[msg.id];
+          weatherCb(msg.success ? msg.result : null);
           break;
         }
         if (msg.success && msg.result && Array.isArray(msg.result)) {
@@ -6323,6 +6820,33 @@
   // Backward-compatible wrapper for slider token replacement.
   function injectActionValue(node, value) {
     return injectActionTokens(node, { '$value': value });
+  }
+
+  // Resolve {{ expr }} templates in action.data at tap time.
+  // A value that is purely a single {{ expr }} returns the typed result (number stays number).
+  // Mixed strings (text + expression) return a string via applyTemplate.
+  function resolveActionData(node, state) {
+    if (node && typeof node === 'string' && node.indexOf('{{') !== -1) {
+      var pure = node.match(/^\s*\{\{([\s\S]*?)\}\}\s*$/);
+      if (pure) {
+        var val = evaluateExpression(pure[1], state, null);
+        return (val === null || val === undefined) ? node : val;
+      }
+      return applyTemplate(node, state, null);
+    }
+    if (node && Object.prototype.toString.call(node) === '[object Array]') {
+      var arr = [];
+      for (var i = 0; i < node.length; i++) arr.push(resolveActionData(node[i], state));
+      return arr;
+    }
+    if (node && typeof node === 'object') {
+      var out = {};
+      for (var k in node) {
+        if (node.hasOwnProperty(k)) out[k] = resolveActionData(node[k], state);
+      }
+      return out;
+    }
+    return node;
   }
 
   function scheduleReconnect() {

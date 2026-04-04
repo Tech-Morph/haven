@@ -1599,3 +1599,12 @@ html, body {
   width: 100%;
   height: 100%;
 }
+
+/* ---- Weather Forecast widget -------------------------------- */
+.widget-weather-forecast {
+  overflow: hidden;
+}
+
+.widget-weather-forecast .mdi {
+  display: inline;
+}
