@@ -3008,7 +3008,7 @@ function refreshPreview() {
 }
 
 function buildPreviewHtml() {
-  var payload = JSON.stringify(config);
+  var payload = JSON.stringify(config).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
   var v = Date.now();
   return [
     '<!DOCTYPE html>',
