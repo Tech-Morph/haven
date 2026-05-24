@@ -183,7 +183,40 @@ HAven looks for HA credentials in this order:
 
 The HA URL defaults to `window.location.origin`. No configuration needed when HAven is hosted inside HA's `www/` folder.
 
-**Embedding a token in the config** (optional), useful for provisioning a new tablet without touching it:
+### What is and is not protected
+
+Files in HA's `www/` folder (`/local/...`) are served **without authentication**. This is how all `www/` resources work in Home Assistant, not something specific to HAven. It means:
+
+- The app files (`index.html`, `app.js`, `style.css`) are publicly readable. They contain no secrets and no credentials.
+- Device config files (`devices/xxx.json`) are also publicly readable. By default they contain entity IDs and dashboard layout, but **no credentials**. Entity IDs are not secret in the same way passwords are, but they do reveal the structure of your home setup to anyone who can read the file.
+
+This is acceptable on a local network where you trust everyone who can reach HA. For remote access, see below.
+
+### Remote access (Nabu Casa, reverse proxy)
+
+If your HA instance is accessible from the internet, the `www/` folder is too. Anyone with your HA URL can fetch your device JSON files. This has two practical implications:
+
+- **Never leave a token embedded in a device JSON file** if your HA instance is remotely accessible. The token grants API-level access to Home Assistant. Once saved to localStorage on the device, remove it from the JSON immediately.
+- **Entity IDs in your config will be visible** to anyone who finds the URL. This is generally low-risk but worth knowing.
+
+The dashboard itself still requires a valid Long-Lived Access Token to connect to the WebSocket and do anything useful, so a public config file alone does not give an attacker control of your home. The token is the thing to protect.
+
+### Use a restricted HA user for HAven
+
+By default, Long-Lived Access Tokens inherit the permissions of the account that created them. If you create the token from an admin account, a leaked token has full HA access.
+
+The recommended approach for any always-on dashboard is to create a dedicated HA user:
+
+1. In Home Assistant, go to **Settings > People > Add Person**.
+2. Create a new user (e.g. "HAven Dashboard") and set it to **non-admin**.
+3. Log in as that user (or use the HA API) to generate the Long-Lived Access Token.
+4. Use that token in HAven.
+
+If that token is ever compromised, the blast radius is limited to whatever that non-admin user can control. You can revoke and reissue the token without affecting anything else.
+
+### Embedding a token in the config (provisioning only)
+
+Embedding a token is optional and intended only for provisioning a new tablet without physically touching it:
 
 ```json
 {
@@ -194,9 +227,11 @@ The HA URL defaults to `window.location.origin`. No configuration needed when HA
 }
 ```
 
-Once the device has saved the token to localStorage you can remove it from the JSON file. Note that `devices/` JSON files are served without authentication, so anyone on your local network can read them. Treat embedded tokens accordingly.
+Once the device has saved the token to localStorage, **remove it from the JSON file**. If your HA instance is accessible remotely, treat any window where the token is in the file as a potential exposure.
 
-**Resetting credentials**: open the browser console on the device and run:
+### Resetting credentials
+
+Open the browser console on the device and run:
 
 ```javascript
 localStorage.removeItem('haven_url');

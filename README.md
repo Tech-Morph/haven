@@ -24,6 +24,14 @@ Most dashboards flex and reflow to fit whatever screen they land on. HAven takes
 
 ---
 
+## A note on AI-assisted development
+
+The code in this project was written almost entirely with the help of AI (primarily Claude). I am not a software developer. I had a clear vision for what I wanted to build, and I used AI as the tool to get there. The result may not win any awards for elegant code architecture, but it does exactly what I designed it to do, on hardware that most dashboards have given up on.
+
+If AI-assisted code bothers you, that is a completely fair position to hold. There are plenty of other projects built by talented developers writing every line themselves, and you should use whatever fits your values. HAven exists because I could not have built it any other way, and it works well to deliver my vision.
+
+---
+
 ## Features
 
 - **Zero server-side install:** copy files into HA's `www/` folder, done
@@ -56,6 +64,9 @@ Most dashboards flex and reflow to fit whatever screen they land on. HAven takes
 3. Access HAven at `http://your-ha-ip:8123/local/haven/index.html`
 
 > HACS distribution is planned for a future release. See the Roadmap below.
+
+> [!IMPORTANT]
+> HAven files live in HA's `www/` folder, which is served without authentication. Device config files are readable by anyone who can reach your HA instance. **Do not leave tokens in device JSON files**, especially if your HA is remotely accessible. For best practice, use a dedicated non-admin HA user to generate tokens used in HAven. See [Credentials & Security](docs/getting-started.md#credentials--security) for the full details.
 
 ---
 
