@@ -10,3 +10,15 @@ PLACEHOLDER_STYLE
   height: 100%;
   border: none;
 }
+
+.widget-iframe {
+  position: absolute;
+  overflow: hidden;
+}
+
+.widget-iframe iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
