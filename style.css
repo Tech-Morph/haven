@@ -1,4 +1,1614 @@
-PLACEHOLDER_STYLE
+﻿/* ============================================================
+   HAven - Style
+   Designed for fixed-canvas pixel-perfect display
+   Compatible with old browsers - no CSS Grid, no custom props
+   on elements (only used on :root for theme tokens)
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ---- Font Awesome 4 (bundled locally) ----------------------
+   Loaded from fonts/ folder so icons work offline and on
+   TV browsers with no internet access.
+   Use unicode codepoints in widget config e.g. "\uf0eb"
+   Reference: https://fontawesome.com/v4/icons/
+   ------------------------------------------------------------ */
+
+/* ---- Material Design Icons ---------------------------------
+   Loaded via fonts/materialdesignicons.css (MDI's own stylesheet).
+   Use [mdi:icon-name] syntax in config - renders as:
+   <span class="mdi mdi-icon-name"></span>
+   Icons at: https://pictogrammers.com/library/mdi/              */
+
+/* MDI defaults to inline-block which causes flex to collapse adjacent
+   whitespace. Override to inline so spaces in config text are preserved. */
+.widget-label .mdi,
+.widget-clock .mdi,
+.btn-label .mdi {
+  display: inline;
+}
+
+
+/* ---- Canvas scaling ----------------------------------------
+   The canvas is a fixed-size div matching the design resolution.
+   JS calculates a scale factor and applies transform: scale()
+   so it fills the screen without breaking layout.
+   transform-origin: top left means scaling expands right+down.
+   ------------------------------------------------------------ */
+
+#canvas-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  overscroll-behavior-y: none;
+}
+
+#canvas {
+  position: relative;
+  /* width and height set by JS from config */
+  background: #161C23;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-transform-origin: top left;
+  transform-origin: top left;
+  overflow: hidden;
+  /* Prevent text selection on touch */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---- Widget base -------------------------------------------
+   All widgets are absolutely positioned divs inside #canvas.
+   position, size and z-index set inline by JS.
+   ------------------------------------------------------------ */
+
+.widget {
+  position: absolute;
+  overflow: hidden;
+}
+
+/* ---- Widget animations (v1: label / rectangle) -------------
+   Animation is applied to the outer widget host so inner widget
+   styling (including override opacity) can remain independent. */
+.widget-anim-active {
+  -webkit-transform-origin: 50% 50%;
+  transform-origin: 50% 50%;
+  will-change: opacity, transform;
+}
+
+.widget-anim-pulse {
+  -webkit-animation: havenPulse 2s ease-in-out infinite;
+  animation: havenPulse 2s ease-in-out infinite;
+}
+
+.widget-anim-pulse-fast {
+  -webkit-animation: havenPulseFast 0.8s ease-in-out infinite;
+  animation: havenPulseFast 0.8s ease-in-out infinite;
+}
+
+.widget-anim-blink {
+  -webkit-animation: havenBlink 0.9s step-end infinite;
+  animation: havenBlink 0.9s step-end infinite;
+}
+
+.widget-anim-breathe {
+  -webkit-animation: havenBreathe 2.2s ease-in-out infinite;
+  animation: havenBreathe 2.2s ease-in-out infinite;
+}
+
+.haven-anim-paused .widget-anim-active {
+  -webkit-animation-play-state: paused !important;
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-anim-active {
+    -webkit-animation: none !important;
+    animation: none !important;
+    -webkit-transform: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
+
+@-webkit-keyframes havenPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+@keyframes havenPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@-webkit-keyframes havenPulseFast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.52; }
+}
+@keyframes havenPulseFast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.52; }
+}
+
+@-webkit-keyframes havenBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.1; }
+}
+@keyframes havenBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.1; }
+}
+
+@-webkit-keyframes havenBreathe {
+  0%, 100% { -webkit-transform: scale(1); transform: scale(1); }
+  50% { -webkit-transform: scale(1.05); transform: scale(1.05); }
+}
+@keyframes havenBreathe {
+  0%, 100% { -webkit-transform: scale(1); transform: scale(1); }
+  50% { -webkit-transform: scale(1.05); transform: scale(1.05); }
+}
+
+/* ---- Label widget ------------------------------------------ */
+
+.widget-label {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0;
+}
+
+.widget-label.align-left   { -webkit-box-pack: start;  -ms-flex-pack: start;  justify-content: flex-start; }
+.widget-label.align-center { -webkit-box-pack: center; -ms-flex-pack: center; justify-content: center; }
+.widget-label.align-right  { -webkit-box-pack: end;    -ms-flex-pack: end;    justify-content: flex-end; }
+
+/* ---- Rectangle widget ------------------------------------- */
+
+.widget-rectangle {
+  /* purely visual, no content by default */
+}
+
+/* ---- Bar widget -------------------------------------------- */
+
+.widget-bar {
+  /* The bar fill is a child div whose width% is updated by JS */
+}
+
+.widget-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  -webkit-transition: width 0.4s ease, background-color 0.4s ease;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+/* ---- Slider widget ----------------------------------------- */
+
+.widget-slider {
+  position: absolute;
+  overflow: hidden;
+}
+
+.widget-slider-fill {
+  position: absolute;
+  pointer-events: none;
+  -webkit-transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease;
+}
+
+.widget-slider-thumb {
+  position: absolute;
+  cursor: pointer;
+  -webkit-box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  -webkit-transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease;
+}
+
+/* ---- Switch widget ----------------------------------------- */
+
+.widget-switch {
+  position: absolute;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.widget-switch .switch-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-transition: background-color 0.2s ease, opacity 0.2s ease;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.widget-switch .switch-thumb {
+  position: absolute;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  -webkit-box-shadow: 0 1px 3px rgba(0,0,0,0.38);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.38);
+  -webkit-transition: left 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+  transition: left 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.widget-switch .switch-icon {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.widget-switch .switch-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+
+/* ---- Button widget ----------------------------------------- */
+
+.widget-button {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 10px;
+  -webkit-transition: opacity 0.1s ease;
+  transition: opacity 0.1s ease;
+  gap: 6px;
+}
+
+.widget-button:active {
+  opacity: 0.7;
+}
+
+.widget-button .btn-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.widget-button .btn-label {
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ---- Clock widget ------------------------------------------ */
+
+.widget-clock {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: start;
+  -ms-flex-pack: start;
+  justify-content: flex-start;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---- Connection status dot --------------------------------- */
+
+#conn-status {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 9999;
+  -webkit-transition: background-color 0.5s ease;
+  transition: background-color 0.5s ease;
+}
+
+.conn-connected    { background: #44C647; }
+.conn-connecting   { background: #F0AD4E; }
+.conn-disconnected { background: #D9534F; }
+
+/* ---- Page navigation dots ---------------------------------- */
+
+#page-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  gap: 10px;
+  z-index: 9998;
+  padding: 18px 24px;  /* larger tap area for tablets */
+  align-items: center;
+  touch-action: manipulation;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.28);
+}
+
+.page-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.40);
+  cursor: pointer;
+  /* Transparent border expands tap area without affecting layout */
+  border: 14px solid transparent;
+  background-clip: padding-box;
+  -webkit-box-sizing: content-box;
+  box-sizing: content-box;
+  -webkit-transition: background-color 0.2s ease, -webkit-transform 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+
+.page-dot.active {
+  background: rgba(255,255,255,0.95);
+  background-clip: padding-box;
+  -webkit-transform: scale(1.25);
+  transform: scale(1.25);
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+
+.page-dot:hover {
+  background: rgba(255,255,255,0.95);
+  background-clip: padding-box;
+}
+
+/* ---- Setup overlay ----------------------------------------- */
+
+#setup-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #0d1117;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+#setup-overlay.hidden {
+  display: none;
+}
+
+#setup-box {
+  background: #1c2433;
+  border: 1px solid #2d3a4a;
+  border-radius: 12px;
+  padding: 32px;
+  width: 90%;
+  max-width: 480px;
+  color: #e6e6e6;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+}
+
+#setup-logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: #8ADF45;
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+#setup-device-name {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7580;
+  letter-spacing: 0;
+  margin-left: 8px;
+  font-family: monospace;
+}
+
+#setup-about {
+  padding-top: 16px;
+  border-top: 1px solid #2d3a4a;
+  text-align: center;
+}
+
+#setup-box p {
+  font-size: 14px;
+  color: #9fa5ad;
+  margin-bottom: 20px;
+}
+
+#setup-box label {
+  display: block;
+  font-size: 13px;
+  color: #9fa5ad;
+  margin-bottom: 16px;
+}
+
+#setup-box input,
+#setup-box textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: #111820;
+  border: 1px solid #2d3a4a;
+  border-radius: 6px;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-family: monospace;
+  resize: none;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#setup-box input:focus,
+#setup-box textarea:focus {
+  border-color: #8ADF45;
+}
+
+#setup-save {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: #8ADF45;
+  color: #111;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
+
+#setup-save:active {
+  background: #6db534;
+}
+
+#setup-error {
+  color: #D9534F;
+  font-size: 13px;
+  min-height: 20px;
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+@media (min-width: 760px) {
+  #setup-box {
+    -webkit-box-orient: horizontal;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: row;
+    flex-direction: row;
+    -webkit-box-align: start;
+    -ms-flex-align: start;
+    align-items: flex-start;
+    max-width: 820px;
+    gap: 32px;
+  }
+  #setup-form {
+    -webkit-box-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    min-width: 0;
+  }
+  #setup-about {
+    width: 200px;
+    -webkit-box-flex: 0;
+    -ms-flex: 0 0 200px;
+    flex: 0 0 200px;
+    padding-top: 0;
+    border-top: none;
+    border-left: 1px solid #2d3a4a;
+    padding-left: 28px;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
+    -webkit-box-pack: center;
+    -ms-flex-pack: center;
+    justify-content: center;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+  }
+}
+
+/* ---- Landing page (no device specified) -------------------- */
+
+#landing {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #161C23;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  font-family: sans-serif;
+}
+
+.landing-inner {
+  max-width: 600px;
+  width: 90%;
+  text-align: center;
+}
+
+.landing-logo {
+  font-size: 64px;
+  font-weight: bold;
+  color: #8ADF45;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.landing-tagline {
+  font-size: 18px;
+  color: #9fa5ad;
+  margin-bottom: 24px;
+}
+
+.landing-divider {
+  width: 80px;
+  height: 2px;
+  background: #363f4a;
+  margin: 0 auto 32px auto;
+  border-radius: 1px;
+}
+
+.landing-section {
+  background: #272E36;
+  border-radius: 10px;
+  padding: 18px 24px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.landing-label {
+  font-size: 13px;
+  color: #8ADF45;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.landing-hint {
+  font-size: 15px;
+  color: #9fa5ad;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.landing-example {
+  font-size: 16px;
+  color: #FFFFFF;
+  background: #363f4a;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.landing-example em {
+  color: #8ADF45;
+  font-style: normal;
+}
+
+.landing-hint code {
+  background: #363f4a;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  color: #e6e6e6;
+  font-size: 14px;
+}
+
+/* ---- Image / Camera widget --------------------------------- */
+
+.widget-image {
+  background: #000;
+}
+
+.widget-image img,
+.widget-image video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;  /* clicks pass through to the container */
+}
+
+/* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+
+  font-size: 56px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  pointer-events: none;
+  -webkit-transition: opacity 0.2s;
+  transition: opacity 0.2s;
+}
+
+.widget-image:hover .camera-play-btn,
+.widget-image:active /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  opacity: 0.6;
+}
+
+.camera-loader {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+
+  font-size: 48px;
+  color: rgba(255,255,255,0.2);
+  background: #111;
+  pointer-events: none;
+}
+
+/* ---- Fullscreen overlay ------------------------------------ */
+
+.fs-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.95);
+  z-index: 99999;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+}
+
+.fs-header {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  -ms-flex-pack: justify;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(0,0,0,0.6);
+  -webkit-box-flex: 0;
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+}
+
+.fs-title {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  color: rgba(255,255,255,0.9);
+  letter-spacing: 1px;
+}
+
+.fs-close {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+  line-height: 44px;
+  text-align: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background 0.15s;
+  transition: background 0.15s;
+}
+
+.fs-close:hover,
+.fs-close:active {
+  background: rgba(255,255,255,0.25);
+}
+
+.fs-content {
+  -webkit-box-flex: 1;
+  -ms-flex: 1;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.fs-content video {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -o-object-fit: contain;
+}
+
+.fs-content img {
+  position: absolute;
+  top: 50%; left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -o-object-fit: contain;
+  border-radius: 6px;
+}
+
+.fs-content /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+
+  font-size: 56px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  pointer-events: none;
+  -webkit-transition: opacity 0.2s;
+  transition: opacity 0.2s;
+}
+
+.widget-image:hover .camera-play-btn,
+.widget-image:active /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  opacity: 0.6;
+}
+
+.camera-loader {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+}/* ---- Material Design Icons ---------------------------------
+   Font file: fonts/materialdesignicons-webfont.woff2
+   Icons are raw Unicode codepoints in text strings.
+   Codepoints at: https://pictogrammers.com/library/mdi/         */
+
+@font-face {
+  font-family: 'Material Design Icons';
+  src: url('fonts/materialdesignicons-webfont.woff2') format('woff2');
+  font-weight: normal;
+  font-style:  normal;
+}
+
+/* Applied automatically by JS when MDI codepoints detected in string */
+.mdi-font {
+  font-family: 'Material Design Icons', sans-serif;
+}
+
+/* ---- Canvas scaling ----------------------------------------
+   The canvas is a fixed-size div matching the design resolution.
+   JS calculates a scale factor and applies transform: scale()
+   so it fills the screen without breaking layout.
+   transform-origin: top left means scaling expands right+down.
+   ------------------------------------------------------------ */
+
+#canvas-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  overscroll-behavior-y: none;
+}
+
+#canvas {
+  position: relative;
+  /* width and height set by JS from config */
+  background: #161C23;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-transform-origin: top left;
+  transform-origin: top left;
+  overflow: hidden;
+  /* Prevent text selection on touch */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---- Widget base -------------------------------------------
+   All widgets are absolutely positioned divs inside #canvas.
+   position, size and z-index set inline by JS.
+   ------------------------------------------------------------ */
+
+.widget {
+  position: absolute;
+  overflow: hidden;
+}
+
+/* ---- Label widget ------------------------------------------ */
+
+.widget-label {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0;
+}
+
+.widget-label.align-left   { -webkit-box-pack: start;  -ms-flex-pack: start;  justify-content: flex-start; }
+.widget-label.align-center { -webkit-box-pack: center; -ms-flex-pack: center; justify-content: center; }
+.widget-label.align-right  { -webkit-box-pack: end;    -ms-flex-pack: end;    justify-content: flex-end; }
+
+/* ---- Rectangle widget ------------------------------------- */
+
+.widget-rectangle {
+  /* purely visual, no content by default */
+}
+
+/* ---- Bar widget -------------------------------------------- */
+
+.widget-bar {
+  /* The bar fill is a child div whose width% is updated by JS */
+}
+
+.widget-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  -webkit-transition: width 0.4s ease, background-color 0.4s ease;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+/* ---- Button widget ----------------------------------------- */
+
+.widget-button {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 10px;
+  -webkit-transition: opacity 0.1s ease;
+  transition: opacity 0.1s ease;
+  gap: 6px;
+}
+
+.widget-button:active {
+  opacity: 0.7;
+}
+
+.widget-button .btn-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.widget-button .btn-label {
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ---- Clock widget ------------------------------------------ */
+
+.widget-clock {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: start;
+  -ms-flex-pack: start;
+  justify-content: flex-start;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---- Connection status dot --------------------------------- */
+
+#conn-status {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 9999;
+  -webkit-transition: background-color 0.5s ease;
+  transition: background-color 0.5s ease;
+}
+
+.conn-connected    { background: #44C647; }
+.conn-connecting   { background: #F0AD4E; }
+.conn-disconnected { background: #D9534F; }
+
+/* ---- Page navigation dots ---------------------------------- */
+
+#page-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  gap: 10px;
+  z-index: 9998;
+  padding: 18px 24px;  /* larger tap area for tablets */
+  align-items: center;
+  touch-action: manipulation;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.28);
+}
+
+.page-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.40);
+  cursor: pointer;
+  /* Transparent border expands tap area without affecting layout */
+  border: 14px solid transparent;
+  background-clip: padding-box;
+  -webkit-box-sizing: content-box;
+  box-sizing: content-box;
+  -webkit-transition: background-color 0.2s ease, -webkit-transform 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+
+.page-dot.active {
+  background: rgba(255,255,255,0.95);
+  background-clip: padding-box;
+  -webkit-transform: scale(1.25);
+  transform: scale(1.25);
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+
+.page-dot:hover {
+  background: rgba(255,255,255,0.95);
+  background-clip: padding-box;
+}
+
+/* ---- Setup overlay ----------------------------------------- */
+
+#setup-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #0d1117;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+#setup-overlay.hidden {
+  display: none;
+}
+
+#setup-box {
+  background: #1c2433;
+  border: 1px solid #2d3a4a;
+  border-radius: 12px;
+  padding: 32px;
+  width: 90%;
+  max-width: 480px;
+  color: #e6e6e6;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+}
+
+#setup-logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: #8ADF45;
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+#setup-device-name {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7580;
+  letter-spacing: 0;
+  margin-left: 8px;
+  font-family: monospace;
+}
+
+#setup-about {
+  padding-top: 16px;
+  border-top: 1px solid #2d3a4a;
+  text-align: center;
+}
+
+#setup-box p {
+  font-size: 14px;
+  color: #9fa5ad;
+  margin-bottom: 20px;
+}
+
+#setup-box label {
+  display: block;
+  font-size: 13px;
+  color: #9fa5ad;
+  margin-bottom: 16px;
+}
+
+#setup-box input,
+#setup-box textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: #111820;
+  border: 1px solid #2d3a4a;
+  border-radius: 6px;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-family: monospace;
+  resize: none;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#setup-box input:focus,
+#setup-box textarea:focus {
+  border-color: #8ADF45;
+}
+
+#setup-save {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: #8ADF45;
+  color: #111;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
+
+#setup-save:active {
+  background: #6db534;
+}
+
+#setup-error {
+  color: #D9534F;
+  font-size: 13px;
+  min-height: 20px;
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+@media (min-width: 760px) {
+  #setup-box {
+    -webkit-box-orient: horizontal;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: row;
+    flex-direction: row;
+    -webkit-box-align: start;
+    -ms-flex-align: start;
+    align-items: flex-start;
+    max-width: 820px;
+    gap: 32px;
+  }
+  #setup-form {
+    -webkit-box-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    min-width: 0;
+  }
+  #setup-about {
+    width: 200px;
+    -webkit-box-flex: 0;
+    -ms-flex: 0 0 200px;
+    flex: 0 0 200px;
+    padding-top: 0;
+    border-top: none;
+    border-left: 1px solid #2d3a4a;
+    padding-left: 28px;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
+    -webkit-box-pack: center;
+    -ms-flex-pack: center;
+    justify-content: center;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+  }
+}
+
+/* ---- Landing page (no device specified) -------------------- */
+
+#landing {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #161C23;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  font-family: sans-serif;
+}
+
+.landing-inner {
+  max-width: 600px;
+  width: 90%;
+  text-align: center;
+}
+
+.landing-logo {
+  font-size: 64px;
+  font-weight: bold;
+  color: #8ADF45;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.landing-tagline {
+  font-size: 18px;
+  color: #9fa5ad;
+  margin-bottom: 24px;
+}
+
+.landing-divider {
+  width: 80px;
+  height: 2px;
+  background: #363f4a;
+  margin: 0 auto 32px auto;
+  border-radius: 1px;
+}
+
+.landing-section {
+  background: #272E36;
+  border-radius: 10px;
+  padding: 18px 24px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.landing-label {
+  font-size: 13px;
+  color: #8ADF45;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.landing-hint {
+  font-size: 15px;
+  color: #9fa5ad;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.landing-example {
+  font-size: 16px;
+  color: #FFFFFF;
+  background: #363f4a;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.landing-example em {
+  color: #8ADF45;
+  font-style: normal;
+}
+
+.landing-hint code {
+  background: #363f4a;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  color: #e6e6e6;
+  font-size: 14px;
+}
+
+/* ---- Image / Camera widget --------------------------------- */
+
+.widget-image {
+  background: #000;
+}
+
+.widget-image img,
+.widget-image video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;  /* clicks pass through to the container */
+}
+
+/* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+
+  font-size: 56px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  pointer-events: none;
+  -webkit-transition: opacity 0.2s;
+  transition: opacity 0.2s;
+}
+
+.widget-image:hover .camera-play-btn,
+.widget-image:active /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  opacity: 0.6;
+}
+
+.camera-loader {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+
+  font-size: 48px;
+  color: rgba(255,255,255,0.2);
+  background: #111;
+  pointer-events: none;
+}
+
+/* ---- Fullscreen overlay ------------------------------------ */
+
+.fs-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.95);
+  z-index: 99999;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+}
+
+.fs-header {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  -ms-flex-pack: justify;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(0,0,0,0.6);
+  -webkit-box-flex: 0;
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+}
+
+.fs-title {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  color: rgba(255,255,255,0.9);
+  letter-spacing: 1px;
+}
+
+.fs-close {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+  line-height: 44px;
+  text-align: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background 0.15s;
+  transition: background 0.15s;
+}
+
+.fs-close:hover,
+.fs-close:active {
+  background: rgba(255,255,255,0.25);
+}
+
+.fs-content {
+  -webkit-box-flex: 1;
+  -ms-flex: 1;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.fs-content video {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -o-object-fit: contain;
+}
+
+.fs-content img {
+  position: absolute;
+  top: 50%; left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -o-object-fit: contain;
+  border-radius: 6px;
+}
+
+.fs-content /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+
+  font-size: 56px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  pointer-events: none;
+  -webkit-transition: opacity 0.2s;
+  transition: opacity 0.2s;
+}
+
+.widget-image:hover .camera-play-btn,
+.widget-image:active /* ---- Arc / gauge widget ------------------------------------ */
+
+.widget-arc {
+  position: absolute;
+}
+
+.widget-arc svg {
+  pointer-events: none;
+}
+
+.camera-play-btn {
+  opacity: 0.6;
+}
+
+.camera-loader {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Weather Forecast widget -------------------------------- */
+.widget-weather-forecast {
+  overflow: hidden;
+}
+
+.widget-weather-forecast .mdi {
+  display: inline;
+}
+
 .widget-iframe {
   position: absolute;
   overflow: hidden;
@@ -9,7 +1619,25 @@ PLACEHOLDER_STYLE
   width: 100%;
   height: 100%;
   border: none;
+
+  /* Sharper rendering on high-DPI / scaled canvas */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+
+  /* Prevent subpixel blurring from canvas scale() transform */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+
+  /* Let the iframe handle its own touch events */
+  touch-action: auto;
+  pointer-events: auto;
+
+  /* Prevent the iframe from being blurry on fractional scale factors */
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
+/* ---- iFrame widget ----------------------------------------- */
 
 .widget-iframe {
   position: absolute;
@@ -21,4 +1649,36 @@ PLACEHOLDER_STYLE
   width: 100%;
   height: 100%;
   border: none;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  touch-action: auto;
+  pointer-events: auto;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* ---- iFrame widget ----------------------------------------- */
+
+.widget-iframe {
+  position: absolute;
+  overflow: hidden;
+}
+
+.widget-iframe iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  touch-action: auto;
+  pointer-events: auto;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }

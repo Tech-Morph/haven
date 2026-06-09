@@ -4927,7 +4927,7 @@
   // Tapping always opens a fullscreen HLS stream.
   //
 
-  function renderIframe(el, w) {
+      function renderIframe(el, w) {
     el.className += ' widget-iframe';
     el.style.overflow      = 'hidden';
     el.style.borderRadius  = (w.radius !== undefined ? w.radius : 0) + 'px';
@@ -4944,14 +4944,36 @@
     }
     var iframe             = document.createElement('iframe');
     iframe.src             = w.url;
-    iframe.style.width     = '100%';
-    iframe.style.height    = '100%';
     iframe.style.border    = 'none';
     iframe.style.display   = 'block';
-    iframe.style.borderRadius = (w.radius !== undefined ? w.radius : 0) + 'px';
+    iframe.style.transformOrigin       = '0 0';
+    iframe.style.webkitTransformOrigin = '0 0';
     iframe.scrolling       = w.scrolling !== false ? 'yes' : 'no';
     iframe.allowFullscreen = true;
     iframe.allow           = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+
+    function applyScale() {
+      var canvas = document.getElementById('canvas');
+      var m = canvas && canvas.style.transform &&
+              canvas.style.transform.match(/scale\(([^)]+)\)/);
+      var s = m ? parseFloat(m[1]) : 1;
+      if (s && s !== 1) {
+        var inv = 1 / s;
+        iframe.style.width           = (w.w * s) + 'px';
+        iframe.style.height          = (w.h * s) + 'px';
+        iframe.style.transform       = 'scale(' + inv + ')';
+        iframe.style.webkitTransform = 'scale(' + inv + ')';
+      } else {
+        iframe.style.width           = w.w + 'px';
+        iframe.style.height          = w.h + 'px';
+        iframe.style.transform       = '';
+        iframe.style.webkitTransform = '';
+      }
+    }
+
+    applyScale();
+    window.addEventListener('resize', applyScale);
+
     if (w.reload_interval && w.reload_interval > 0) {
       setInterval(function () { iframe.src = iframe.src; }, w.reload_interval * 1000);
     }
@@ -6898,5 +6920,5 @@
   } else {
     init();
   }
+}());
 
-})();
