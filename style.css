@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    HAven - Style
    Designed for fixed-canvas pixel-perfect display
    Compatible with old browsers - no CSS Grid, no custom props
@@ -1681,4 +1681,59 @@ html, body {
   will-change: transform;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+/* ---- Thermostat widget ---------------------------------------- */
+
+.widget-thermostat {
+  position: absolute;
+  overflow: visible;
+}
+
+.thermostat-centre {
+  pointer-events: none;
+  -webkit-user-select: none;
+          user-select: none;
+}
+
+.thermostat-target {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.thermostat-current {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.thermostat-mode {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.thermostat-btn {
+  -webkit-appearance: none;
+          appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-box-align: center;
+      -ms-flex-align: center;
+          align-items: center;
+  -webkit-box-pack: center;
+      -ms-flex-pack: center;
+          justify-content: center;
+  -webkit-transition: background 120ms ease, -webkit-transform 80ms ease;
+          transition: background 120ms ease, transform 80ms ease;
+  -webkit-user-select: none;
+          user-select: none;
+}
+
+.thermostat-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
