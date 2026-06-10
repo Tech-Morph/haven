@@ -5389,30 +5389,45 @@
     wsSend({ id: id, type: 'auth/sign_path', path: path, expires: expires || 20 });
     return id;
   }
-  function renderThermostat(el, w) {
+    function renderThermostat(el, w) {
     el.className += ' widget-thermostat';
     el.style.overflow = 'visible';
 
-    var min  = (w.min  !== undefined) ? parseFloat(w.min)  : 10;
-    var max  = (w.max  !== undefined) ? parseFloat(w.max)  : 35;
-    var step = (w.step !== undefined) ? parseFloat(w.step) : 0.5;
-    if (isNaN(min))  min  = 10;
-    if (isNaN(max))  max  = 35;
-    if (isNaN(step) || step <= 0) step = 0.5;
+    var min  = (w.min  !== undefined) ? parseFloat(w.min)  : 64;
+    var max  = (w.max  !== undefined) ? parseFloat(w.max)  : 90;
+    var step = (w.step !== undefined) ? parseFloat(w.step) : 1;
+    if (isNaN(min))  min  = 64;
+    if (isNaN(max))  max  = 90;
+    if (isNaN(step) || step <= 0) step = 1;
     if (max <= min)  max  = min + 1;
 
     var valueAttr   = w.value_attribute   || 'temperature';
     var currentAttr = w.current_attribute || 'current_temperature';
     var modeAttr    = w.mode_attribute    || 'hvac_action';
-    var unit        = (w.unit !== undefined) ? String(w.unit) : '\u00b0';
+    var unit        = (w.unit !== undefined) ? String(w.unit) : '\u00b0F';
     var stepDp      = (String(step).indexOf('.') !== -1) ? String(step).split('.')[1].length : 0;
 
     var startAngle = 225;
     var endAngle   = 495;
 
-    var arcColor   = resolveColor(w.color       || 'primary');
-    var trackColor = resolveColor(w.background  || 'surface2');
-    var labelColor = resolveColor(w.label_color || 'text_muted');
+    var MODE_COLORS = {
+      cooling:  '#38bdf8', cool:     '#38bdf8',
+      heating:  '#fb923c', heat:     '#fb923c',
+      drying:   '#fbbf24', dry:      '#fbbf24',
+      fan_only: '#2dd4bf', fan:      '#2dd4bf',
+      idle:     '#6b7280', off:      '#4b5563'
+    };
+
+    function modeColor(modeStr) {
+      if (!modeStr) return resolveColor(w.color || 'primary');
+      var key = String(modeStr).toLowerCase().replace(/ /g, '_');
+      return MODE_COLORS[key] || resolveColor(w.color || 'primary');
+    }
+
+    var currentMode = null;
+    var arcColor    = resolveColor(w.color || 'primary');
+    var trackColor  = resolveColor(w.background || 'surface2');
+    var labelColor  = resolveColor(w.label_color || 'text_muted');
 
     var size    = Math.min(w.w, w.h);
     var cx      = w.w / 2;
@@ -5422,6 +5437,7 @@
     var btnSize = Math.max(28, Math.round(size * 0.18));
     var ns      = 'http://www.w3.org/2000/svg';
 
+    // ── SVG arc ──────────────────────────────────────────────
     var svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('width',  w.w);
     svg.setAttribute('height', w.h);
@@ -5452,73 +5468,90 @@
 
     el.appendChild(svg);
 
-    var centre = document.createElement('div');
-    centre.className = 'thermostat-centre';
-    centre.style.cssText = [
-      'position:absolute', 'top:0', 'left:0',
-      'width:'  + w.w + 'px',
-      'height:' + w.h + 'px',
-      'display:flex', 'flex-direction:column',
-      'align-items:center', 'justify-content:center',
-      'pointer-events:none', 'user-select:none',
-      'margin-top:-' + Math.round(size * 0.06) + 'px'
-    ].join(';');
-
-    var currentEl = document.createElement('div');
-    currentEl.className = 'thermostat-current';
-    currentEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.105) + 'px',
-      'color:' + labelColor,
-      'line-height:1.1'
-    ].join(';');
-    currentEl.textContent = '';
-    centre.appendChild(currentEl);
-
-    var targetEl = document.createElement('div');
-    targetEl.className = 'thermostat-target';
-    targetEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.23) + 'px',
-      'font-weight:700',
-      'color:' + arcColor,
-      'line-height:1',
-      'letter-spacing:-0.02em'
-    ].join(';');
-    targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
-    centre.appendChild(targetEl);
-
-    var modeEl = document.createElement('div');
-    modeEl.className = 'thermostat-mode';
-    modeEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.075) + 'px',
-      'color:' + labelColor,
-      'margin-top:' + Math.round(size * 0.025) + 'px',
-      'letter-spacing:0.02em',
-      'text-transform:uppercase'
-    ].join(';');
-    modeEl.textContent = '';
-    centre.appendChild(modeEl);
-
-    el.appendChild(centre);
-
-    function arcTerminus(angleDeg) {
+    // ── Helpers ───────────────────────────────────────────────
+    function arcPt(angleDeg) {
       var rad = (angleDeg - 90) * Math.PI / 180;
-      return {
-        x: cx + r * Math.cos(rad),
-        y: cy + r * Math.sin(rad)
-      };
+      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
     }
 
-    var pMinus = arcTerminus(startAngle);
-    var pPlus  = arcTerminus(endAngle);
+    var pMinus = arcPt(startAngle);   // bottom-left arc end
+    var pPlus  = arcPt(endAngle);     // bottom-right arc end
 
-    function makeBtn(label, pt) {
+    // ── Absolutely positioned text labels ────────────────────
+    // Each label is centred horizontally across the full widget width.
+
+    function makeLabel(className, topPx, styleProps) {
+      var d = document.createElement('div');
+      d.className = className;
+      var base = [
+        'position:absolute',
+        'left:0',
+        'width:' + w.w + 'px',
+        'text-align:center',
+        'pointer-events:none',
+        'user-select:none',
+        'top:' + Math.round(topPx) + 'px'
+      ];
+      d.style.cssText = base.concat(styleProps).join(';');
+      return d;
+    }
+
+    // State: inside the arc, above the big temp
+    var stateFontPx  = Math.round(size * 0.082);
+    var stateTopPx   = cy - r * 0.52 - stateFontPx;   // ← was cy-r-lw-... (above arc), now inside
+    var modeEl = makeLabel('thermostat-mode', stateTopPx, [
+      'font-size:'      + stateFontPx + 'px',
+      'font-weight:600',
+      'color:'          + arcColor,
+      'letter-spacing:0.08em',
+      'text-transform:uppercase',
+      'line-height:1'
+    ]);
+    modeEl.textContent = '';
+    el.appendChild(modeEl);
+
+    // 2. Big setpoint — dead centre of the widget
+    var targetFontPx = Math.round(size * 0.26);
+    var targetTopPx  = cy - targetFontPx * 0.5;   // visually centred
+    var targetEl = makeLabel('thermostat-target', targetTopPx, [
+      'font-size:'     + targetFontPx + 'px',
+      'font-weight:700',
+      'color:'         + arcColor,
+      'line-height:1',
+      'letter-spacing:-0.02em'
+    ]);
+    targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
+    el.appendChild(targetEl);
+
+    // Currently: in the gap between arc ends, smaller font
+    var currentFontPx = Math.round(size * 0.068);   // ← was 0.082, now ~17% smaller
+    var currentTopPx  = pMinus.y - currentFontPx * 1.1;
+    var currentEl = makeLabel('thermostat-current', currentTopPx, [
+      'font-size:' + currentFontPx + 'px',
+      'color:'     + labelColor,
+      'line-height:1'
+    ]);
+    currentEl.textContent = '';
+    el.appendChild(currentEl);
+
+    var btnGap    = Math.round(size * 0.04);
+    var btnTopOff = Math.round(pMinus.y - btnSize / 2) + btnGap + btnSize;
+
+  // Centre-relative positioning — ignore arc endpoints
+    var inset = Math.round(w.w * 0.15);
+    var btnLeftX  = pMinus.x + inset;
+    var btnRightX = pPlus.x  - inset;
+    var btnMinus = makeBtn('−', btnLeftX);
+    var btnPlus  = makeBtn('+', btnRightX);
+
+    function makeBtn(label, centreX) {
       var btn = document.createElement('button');
       btn.className = 'thermostat-btn';
       btn.textContent = label;
       btn.style.cssText = [
         'position:absolute',
-        'left:' + Math.round(pt.x - btnSize / 2) + 'px',
-        'top:'  + Math.round(pt.y - btnSize / 2) + 'px',
+        'left:' + Math.round(centreX - btnSize / 2) + 'px',   // ← still subtracting
+        'top:' + btnTopOff + 'px',
         'width:'  + btnSize + 'px',
         'height:' + btnSize + 'px',
         'font-size:' + Math.round(btnSize * 0.44) + 'px',
@@ -5528,7 +5561,7 @@
         'border:1px solid rgba(255,255,255,0.1)',
         'outline:none', 'cursor:pointer',
         'background:' + resolveColor(w.background || 'surface2'),
-        'color:' + resolveColor(w.label_color || 'text_muted'),
+        'color:'      + resolveColor(w.label_color || 'text_muted'),
         'border-radius:' + Math.round(btnSize / 2) + 'px',
         'touch-action:manipulation',
         'pointer-events:auto',
@@ -5538,22 +5571,22 @@
       return btn;
     }
 
-    var btnMinus = makeBtn('\u2212', pMinus);
-    var btnPlus  = makeBtn('+',     pPlus);
+    var btnMinus = makeBtn('\u2212', pMinus.x);
+    var btnPlus  = makeBtn('+',     pPlus.x);
     el.appendChild(btnMinus);
     el.appendChild(btnPlus);
 
+    // ── Button press states ───────────────────────────────────
     function btnPress(btn) {
       btn.style.transform  = 'scale(0.86)';
       btn.style.background = arcColor;
-      btn.style.color      = resolveColor('text') || '#fff';
+      btn.style.color      = '#fff';
     }
     function btnRelease(btn) {
       btn.style.transform  = '';
       btn.style.background = resolveColor(w.background || 'surface2');
       btn.style.color      = resolveColor(w.label_color || 'text_muted');
     }
-
     ['mousedown', 'touchstart'].forEach(function(ev) {
       btnMinus.addEventListener(ev, function() { btnPress(btnMinus);  }, { passive: true });
       btnPlus.addEventListener( ev, function() { btnPress(btnPlus);   }, { passive: true });
@@ -5563,6 +5596,7 @@
       btnPlus.addEventListener( ev, function() { btnRelease(btnPlus);  });
     });
 
+    // ── State & logic ─────────────────────────────────────────
     var currentSetpoint = null;
 
     function getSetpoint(state) {
@@ -5594,7 +5628,7 @@
     function fmtCurrent(v) {
       var n = parseFloat(v);
       if (isNaN(n)) return '';
-      return 'room \u00a0' + Math.round(n) + '\u00b0';
+      return 'Currently\u00a0\u00a0' + Math.round(n) + '\u00b0';
     }
 
     function updateArc(setpoint) {
@@ -5607,7 +5641,6 @@
       if (pct < 0) pct = 0;
       if (pct > 1) pct = 1;
       var fillEnd = startAngle + pct * (endAngle - startAngle);
-
       if (pct <= 0) {
         valuePath.setAttribute('d', '');
       } else if (pct >= 1) {
@@ -5615,12 +5648,31 @@
       } else {
         valuePath.setAttribute('d', describeArc(cx, cy, r, startAngle, fillEnd));
       }
-
       var halfLen = lw * 0.75;
       var p1 = polarToCartesian(cx, cy, r - halfLen, fillEnd);
       var p2 = polarToCartesian(cx, cy, r + halfLen, fillEnd);
       tickPath.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' L ' + p2.x + ' ' + p2.y);
       tickPath.style.display = '';
+    }
+
+    function applyColors(mode, setpoint) {
+      var mStr = mode ? String(mode).toLowerCase().replace(/ /g, '_') : '';
+      var newArc;
+      if (mStr && MODE_COLORS[mStr]) {
+        newArc = MODE_COLORS[mStr];
+      } else if (setpoint !== null) {
+        var pct = (setpoint - min) / (max - min);
+        if (pct < 0.35)      newArc = '#38bdf8';
+        else if (pct > 0.65) newArc = '#fb923c';
+        else                 newArc = resolveColor(w.color || 'primary');
+      } else {
+        newArc = resolveColor(w.color || 'primary');
+      }
+      arcColor = newArc;
+      targetEl.style.color = arcColor;
+      modeEl.style.color   = arcColor;
+      valuePath.setAttribute('stroke', arcColor);
+      tickPath.setAttribute('stroke',  arcColor);
     }
 
     function applyState(state) {
@@ -5638,12 +5690,10 @@
 
       var mode = (state.attributes && state.attributes[modeAttr] !== undefined)
         ? state.attributes[modeAttr] : state.state;
+      currentMode = mode;
       modeEl.textContent = mode ? String(mode).replace(/_/g, ' ') : '';
 
-      arcColor = resolveColor(ovr.color || w.color || 'primary');
-      targetEl.style.color = arcColor;
-      valuePath.setAttribute('stroke', arcColor);
-      tickPath.setAttribute('stroke', arcColor);
+      applyColors(ovr.mode || mode, currentSetpoint);
       trackPath.setAttribute('stroke', resolveColor(ovr.background || w.background || 'surface2'));
 
       if (ovr.opacity !== undefined) el.style.opacity = ovr.opacity;
@@ -5653,11 +5703,9 @@
     function sendSetpoint(val) {
       resetReturnTimer();
       wsSend({
-        id:           msgId++,
-        type:         'call_service',
-        domain:       'climate',
-        service:      'set_temperature',
-        target:       { entity_id: w.entity },
+        id: msgId++, type: 'call_service',
+        domain: 'climate', service: 'set_temperature',
+        target: { entity_id: w.entity },
         service_data: { temperature: val }
       });
     }
@@ -5667,8 +5715,7 @@
       if (currentSetpoint === null) return;
       var next = clampStep(currentSetpoint - step);
       currentSetpoint = next;
-      fmtTarget(next);
-      updateArc(next);
+      fmtTarget(next); updateArc(next); applyColors(currentMode, next);
       sendSetpoint(next);
     });
 
@@ -5677,8 +5724,7 @@
       if (currentSetpoint === null) return;
       var next = clampStep(currentSetpoint + step);
       currentSetpoint = next;
-      fmtTarget(next);
-      updateArc(next);
+      fmtTarget(next); updateArc(next); applyColors(currentMode, next);
       sendSetpoint(next);
     });
 
