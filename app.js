@@ -5389,416 +5389,305 @@
     wsSend({ id: id, type: 'auth/sign_path', path: path, expires: expires || 20 });
     return id;
   }
-function renderThermostat(el, w) {
-  el.className += ' widget-thermostat';
-  el.style.overflow = 'visible';
+  function renderThermostat(el, w) {
+    el.className += ' widget-thermostat';
+    el.style.overflow = 'visible';
 
-  var min  = (w.min  !== undefined) ? parseFloat(w.min)  : 64;
-  var max  = (w.max  !== undefined) ? parseFloat(w.max)  : 90;
-  var step = (w.step !== undefined) ? parseFloat(w.step) : 1;
-  if (isNaN(min))  min  = 64;
-  if (isNaN(max))  max  = 90;
-  if (isNaN(step) || step <= 0) step = 1;
-  if (max <= min)  max  = min + 1;
+    var min  = (w.min  !== undefined) ? parseFloat(w.min)  : 10;
+    var max  = (w.max  !== undefined) ? parseFloat(w.max)  : 35;
+    var step = (w.step !== undefined) ? parseFloat(w.step) : 0.5;
+    if (isNaN(min))  min  = 10;
+    if (isNaN(max))  max  = 35;
+    if (isNaN(step) || step <= 0) step = 0.5;
+    if (max <= min)  max  = min + 1;
 
-  var valueAttr   = w.value_attribute   || 'temperature';
-  var currentAttr = w.current_attribute || 'current_temperature';
-  var modeAttr    = w.mode_attribute    || 'hvac_action';
-  var unit        = (w.unit !== undefined) ? String(w.unit) : '\u00b0F';
-  var stepDp      = (String(step).indexOf('.') !== -1) ? String(step).split('.')[1].length : 0;
+    var valueAttr   = w.value_attribute   || 'temperature';
+    var currentAttr = w.current_attribute || 'current_temperature';
+    var modeAttr    = w.mode_attribute    || 'hvac_action';
+    var unit        = (w.unit !== undefined) ? String(w.unit) : '\u00b0';
+    var stepDp      = (String(step).indexOf('.') !== -1) ? String(step).split('.')[1].length : 0;
 
-  var outdoorEntityId  = w.outdoor_entity  || null;
-  var humidityEntityId = w.humidity_entity || null;
+    var startAngle = 225;
+    var endAngle   = 495;
 
-  var startAngle = 225;
-  var endAngle   = 495;
+    var arcColor   = resolveColor(w.color       || 'primary');
+    var trackColor = resolveColor(w.background  || 'surface2');
+    var labelColor = resolveColor(w.label_color || 'text_muted');
 
-  var MODE_COLORS = {
-    cooling:'#38bdf8', cool:'#38bdf8',
-    heating:'#fb923c', heat:'#fb923c',
-    drying:'#fbbf24',  dry:'#fbbf24',
-    fan_only:'#2dd4bf',fan:'#2dd4bf',
-    idle:'#6b7280',    off:'#4b5563'
-  };
-  var HVAC_MODES = ['heat','cool','heat_cool','fan_only','dry','off'];
+    var size    = Math.min(w.w, w.h);
+    var cx      = w.w / 2;
+    var cy      = w.h / 2;
+    var lw      = Math.max(6, Math.round(size * 0.065));
+    var r       = (size / 2) - lw - 4;
+    var btnSize = Math.max(28, Math.round(size * 0.18));
+    var ns      = 'http://www.w3.org/2000/svg';
 
-  function modeColor(modeStr) {
-    if (!modeStr) return resolveColor(w.color || 'primary');
-    var key = String(modeStr).toLowerCase().replace(/ /g,'_');
-    return MODE_COLORS[key] || resolveColor(w.color || 'primary');
-  }
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width',  w.w);
+    svg.setAttribute('height', w.h);
+    svg.style.cssText = 'position:absolute;top:0;left:0;overflow:visible;pointer-events:none;';
 
-  var currentMode     = null;
-  var currentHvacMode = null;
-  var arcColor   = resolveColor(w.color || 'primary');
-  var trackColor = resolveColor(w.background || 'surface2');
-  var labelColor = resolveColor(w.label_color || 'text_muted');
+    var trackPath = document.createElementNS(ns, 'path');
+    trackPath.setAttribute('fill',           'none');
+    trackPath.setAttribute('stroke',         trackColor);
+    trackPath.setAttribute('stroke-width',   lw);
+    trackPath.setAttribute('stroke-linecap', 'round');
+    trackPath.setAttribute('d', describeArc(cx, cy, r, startAngle, endAngle));
+    svg.appendChild(trackPath);
 
-  var wW = w.w, wH = w.h;
-  var size    = Math.min(wW, wH);
-  var cx      = wW / 2;
-  var lw      = Math.max(6,  Math.round(size * 0.065));
-  var btnSize = Math.max(24, Math.round(size * 0.18));
-  var gap     = Math.round(size * 0.04);
+    var valuePath = document.createElementNS(ns, 'path');
+    valuePath.setAttribute('fill',           'none');
+    valuePath.setAttribute('stroke',         arcColor);
+    valuePath.setAttribute('stroke-width',   lw);
+    valuePath.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(valuePath);
 
-  // ── Layout: strictly bottom-up, no arc math involved ──────
-  var modeFontPx      = Math.round(size * 0.082);
-  var secondaryFontPx = Math.round(size * 0.065);
-  var targetFontPx    = Math.round(size * 0.26);
+    var tickPath = document.createElementNS(ns, 'path');
+    tickPath.setAttribute('fill',           'none');
+    tickPath.setAttribute('stroke',         arcColor);
+    tickPath.setAttribute('stroke-width',   Math.max(2, Math.round(lw * 0.35)));
+    tickPath.setAttribute('stroke-linecap', 'round');
+    tickPath.style.display = 'none';
+    svg.appendChild(tickPath);
 
-  var modeTopPx      = wH - modeFontPx - gap;
-  var btnTopPx       = modeTopPx - gap - btnSize;
-  var secondaryTopPx = btnTopPx - gap - secondaryFontPx;
+    el.appendChild(svg);
 
-  // Optional outdoor row above secondary
-  var outdoorFontPx  = Math.round(size * 0.058);
-  var outdoorTopPx   = secondaryTopPx - Math.round(gap * 0.5) - outdoorFontPx;
-
-  // ── Arc lives entirely above the secondary row ─────────────
-  var arcZoneBottom = secondaryTopPx - gap;
-  var arcCy         = arcZoneBottom / 2;
-  var r             = Math.max(10, arcCy - lw - 4);
-
-  var targetTopPx   = arcCy - targetFontPx * 0.5;
-
-  // Button x positions mirror arc endpoints (x only — y is btnTopPx)
-  var ns = 'http://www.w3.org/2000/svg';
-  function arcPt(deg) {
-    var rad = (deg - 90) * Math.PI / 180;
-    return { x: cx + r * Math.cos(rad), y: arcCy + r * Math.sin(rad) };
-  }
-  var pMinus = arcPt(startAngle);
-  var pPlus  = arcPt(endAngle);
-  var inset  = Math.round(wW * 0.08);
-  var btnLeftX  = pMinus.x + inset;
-  var btnRightX = pPlus.x  - inset - btnSize;
-
-  // ── SVG arc ───────────────────────────────────────────────
-  var svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width', wW);
-  svg.setAttribute('height', wH);
-  svg.style.cssText = 'position:absolute;top:0;left:0;overflow:visible;pointer-events:none;';
-
-  var trackPath = document.createElementNS(ns, 'path');
-  trackPath.setAttribute('fill','none');
-  trackPath.setAttribute('stroke', trackColor);
-  trackPath.setAttribute('stroke-width', lw);
-  trackPath.setAttribute('stroke-linecap','round');
-  trackPath.setAttribute('d', describeArc(cx, arcCy, r, startAngle, endAngle));
-  svg.appendChild(trackPath);
-
-  var valuePath = document.createElementNS(ns, 'path');
-  valuePath.setAttribute('fill','none');
-  valuePath.setAttribute('stroke', arcColor);
-  valuePath.setAttribute('stroke-width', lw);
-  valuePath.setAttribute('stroke-linecap','round');
-  svg.appendChild(valuePath);
-
-  var tickPath = document.createElementNS(ns, 'path');
-  tickPath.setAttribute('fill','none');
-  tickPath.setAttribute('stroke', arcColor);
-  tickPath.setAttribute('stroke-width', Math.max(2, Math.round(lw * 0.35)));
-  tickPath.setAttribute('stroke-linecap','round');
-  tickPath.style.display = 'none';
-  svg.appendChild(tickPath);
-
-  el.appendChild(svg);
-
-  // ── Label helper ──────────────────────────────────────────
-  function makeLabel(className, topPx, styleProps) {
-    var d = document.createElement('div');
-    d.className = className;
-    d.style.cssText = [
-      'position:absolute','left:0',
-      'width:'+wW+'px',
-      'text-align:center',
-      'pointer-events:none',
-      'user-select:none',
-      'top:'+Math.round(topPx)+'px'
-    ].concat(styleProps).join(';');
-    return d;
-  }
-
-  // ── Mode label — BOTTOM row ───────────────────────────────
-  var modeEl = makeLabel('thermostat-mode', modeTopPx, [
-    'font-size:'+modeFontPx+'px',
-    'font-weight:600',
-    'color:'+arcColor,
-    'letter-spacing:0.08em',
-    'text-transform:uppercase',
-    'line-height:1',
-    'cursor:pointer',
-    'pointer-events:auto'
-  ]);
-  modeEl.textContent = '';
-  el.appendChild(modeEl);
-
-  // ── Setpoint number — centred in arc zone ─────────────────
-  var targetEl = makeLabel('thermostat-target', targetTopPx, [
-    'font-size:'+targetFontPx+'px',
-    'font-weight:700',
-    'color:'+arcColor,
-    'line-height:1',
-    'letter-spacing:-0.02em'
-  ]);
-  targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
-  el.appendChild(targetEl);
-
-  // ── Current temp · humidity — above buttons ───────────────
-  var currentEl = makeLabel('thermostat-current', secondaryTopPx, [
-    'font-size:'+secondaryFontPx+'px',
-    'color:'+labelColor,
-    'line-height:1'
-  ]);
-  currentEl.textContent = '';
-  el.appendChild(currentEl);
-
-  // ── Outdoor — above current (optional) ───────────────────
-  var outdoorEl = null;
-  if (outdoorEntityId) {
-    outdoorEl = makeLabel('thermostat-outdoor', outdoorTopPx, [
-      'font-size:'+outdoorFontPx+'px',
-      'color:'+labelColor,
-      'line-height:1'
-    ]);
-    outdoorEl.textContent = '';
-    el.appendChild(outdoorEl);
-  }
-
-  // ── Buttons ───────────────────────────────────────────────
-  function makeBtn(label, leftX) {
-    var btn = document.createElement('button');
-    btn.className = 'thermostat-btn';
-    btn.textContent = label;
-    btn.style.cssText = [
-      'position:absolute',
-      'left:'+Math.round(leftX)+'px',
-      'top:'+btnTopPx+'px',
-      'width:'+btnSize+'px',
-      'height:'+btnSize+'px',
-      'font-size:'+Math.round(btnSize*0.44)+'px',
-      'font-weight:600','line-height:1',
-      'display:flex','align-items:center','justify-content:center',
-      'border:1px solid rgba(255,255,255,0.1)',
-      'outline:none','cursor:pointer',
-      'background:'+resolveColor(w.background||'surface2'),
-      'color:'+resolveColor(w.label_color||'text_muted'),
-      'border-radius:'+Math.round(btnSize/2)+'px',
-      'touch-action:manipulation','pointer-events:auto',
-      '-webkit-tap-highlight-color:transparent',
-      'transition:background 120ms ease,transform 80ms ease,color 120ms ease'
+    var centre = document.createElement('div');
+    centre.className = 'thermostat-centre';
+    centre.style.cssText = [
+      'position:absolute', 'top:0', 'left:0',
+      'width:'  + w.w + 'px',
+      'height:' + w.h + 'px',
+      'display:flex', 'flex-direction:column',
+      'align-items:center', 'justify-content:center',
+      'pointer-events:none', 'user-select:none',
+      'margin-top:-' + Math.round(size * 0.06) + 'px'
     ].join(';');
-    return btn;
-  }
 
-  var btnMinus = makeBtn('\u2212', btnLeftX);
-  var btnPlus  = makeBtn('+',     btnRightX);
-  el.appendChild(btnMinus);
-  el.appendChild(btnPlus);
+    var currentEl = document.createElement('div');
+    currentEl.className = 'thermostat-current';
+    currentEl.style.cssText = [
+      'font-size:' + Math.round(size * 0.105) + 'px',
+      'color:' + labelColor,
+      'line-height:1.1'
+    ].join(';');
+    currentEl.textContent = '';
+    centre.appendChild(currentEl);
 
-  function btnPress(btn) {
-    btn.style.transform  = 'scale(0.86)';
-    btn.style.background = arcColor;
-    btn.style.color      = '#fff';
-  }
-  function btnRelease(btn) {
-    btn.style.transform  = '';
-    btn.style.background = resolveColor(w.background||'surface2');
-    btn.style.color      = resolveColor(w.label_color||'text_muted');
-  }
-  ['mousedown','touchstart'].forEach(function(ev) {
-    btnMinus.addEventListener(ev, function() { btnPress(btnMinus);  }, { passive:true });
-    btnPlus.addEventListener( ev, function() { btnPress(btnPlus);   }, { passive:true });
-  });
-  ['mouseup','touchend','mouseleave'].forEach(function(ev) {
-    btnMinus.addEventListener(ev, function() { btnRelease(btnMinus); });
-    btnPlus.addEventListener( ev, function() { btnRelease(btnPlus);  });
-  });
+    var targetEl = document.createElement('div');
+    targetEl.className = 'thermostat-target';
+    targetEl.style.cssText = [
+      'font-size:' + Math.round(size * 0.23) + 'px',
+      'font-weight:700',
+      'color:' + arcColor,
+      'line-height:1',
+      'letter-spacing:-0.02em'
+    ].join(';');
+    targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
+    centre.appendChild(targetEl);
 
-  // ── State logic ───────────────────────────────────────────
-  var currentSetpoint = null;
+    var modeEl = document.createElement('div');
+    modeEl.className = 'thermostat-mode';
+    modeEl.style.cssText = [
+      'font-size:' + Math.round(size * 0.075) + 'px',
+      'color:' + labelColor,
+      'margin-top:' + Math.round(size * 0.025) + 'px',
+      'letter-spacing:0.02em',
+      'text-transform:uppercase'
+    ].join(';');
+    modeEl.textContent = '';
+    centre.appendChild(modeEl);
 
-  function getSetpoint(state) {
-    if (!state) return null;
-    var raw = (state.attributes && state.attributes[valueAttr] !== undefined)
-      ? state.attributes[valueAttr] : state.state;
-    var n = parseFloat(raw);
-    return isNaN(n) ? null : n;
-  }
+    el.appendChild(centre);
 
-  function clampStep(v) {
-    var n = Math.round((v - min) / step) * step + min;
-    if (n < min) n = min;
-    if (n > max) n = max;
-    return stepDp > 0 ? parseFloat(n.toFixed(stepDp)) : Math.round(n);
-  }
-
-  function fmtTarget(v) {
-    if (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) {
-      targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
-      return;
+    function arcTerminus(angleDeg) {
+      var rad = (angleDeg - 90) * Math.PI / 180;
+      return {
+        x: cx + r * Math.cos(rad),
+        y: cy + r * Math.sin(rad)
+      };
     }
-    var num = stepDp > 0 ? Number(v).toFixed(stepDp) : String(Math.round(Number(v)));
-    targetEl.innerHTML = num +
-      '<sup style="font-size:0.38em;font-weight:500;vertical-align:0.55em;letter-spacing:0;opacity:0.75">'+unit+'</sup>';
-  }
 
-  function fmtCurrent(v, humV) {
-    var parts = [];
-    var n = parseFloat(v);
-    if (!isNaN(n)) parts.push(Math.round(n)+'\u00b0');
-    var h = parseFloat(humV);
-    if (!isNaN(h)) parts.push(Math.round(h)+'%');
-    return parts.join('\u00a0\u00a0\u00b7\u00a0\u00a0');
-  }
+    var pMinus = arcTerminus(startAngle);
+    var pPlus  = arcTerminus(endAngle);
 
-  function fmtOutdoor(v) {
-    var n = parseFloat(v);
-    if (isNaN(n)) return '';
-    return 'Outdoor\u00a0\u00a0'+Math.round(n)+'\u00b0';
-  }
-
-  function updateArc(setpoint) {
-    if (setpoint === null) { valuePath.setAttribute('d',''); return; }
-    var pct = Math.min(1, Math.max(0, (setpoint - min) / (max - min)));
-    if (pct <= 0) {
-      valuePath.setAttribute('d','');
-    } else if (pct >= 1) {
-      valuePath.setAttribute('d', describeArc(cx, arcCy, r, startAngle, endAngle - 0.01));
-    } else {
-      valuePath.setAttribute('d', describeArc(cx, arcCy, r, startAngle, startAngle + pct*(endAngle-startAngle)));
+    function makeBtn(label, pt) {
+      var btn = document.createElement('button');
+      btn.className = 'thermostat-btn';
+      btn.textContent = label;
+      btn.style.cssText = [
+        'position:absolute',
+        'left:' + Math.round(pt.x - btnSize / 2) + 'px',
+        'top:'  + Math.round(pt.y - btnSize / 2) + 'px',
+        'width:'  + btnSize + 'px',
+        'height:' + btnSize + 'px',
+        'font-size:' + Math.round(btnSize * 0.44) + 'px',
+        'font-weight:600',
+        'line-height:1',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'border:1px solid rgba(255,255,255,0.1)',
+        'outline:none', 'cursor:pointer',
+        'background:' + resolveColor(w.background || 'surface2'),
+        'color:' + resolveColor(w.label_color || 'text_muted'),
+        'border-radius:' + Math.round(btnSize / 2) + 'px',
+        'touch-action:manipulation',
+        'pointer-events:auto',
+        '-webkit-tap-highlight-color:transparent',
+        'transition:background 120ms ease, transform 80ms ease, color 120ms ease'
+      ].join(';');
+      return btn;
     }
-  }
 
-  function applyColors(modeStr) {
-    arcColor = modeColor(modeStr);
-    var isOff = (String(modeStr||'').toLowerCase() === 'off' ||
-                 String(modeStr||'').toLowerCase() === 'idle');
-    valuePath.setAttribute('stroke', arcColor);
-    tickPath.setAttribute('stroke',  arcColor);
-    targetEl.style.color = arcColor;
-    modeEl.style.color   = arcColor;
-    var dim = isOff ? 0.35 : 1;
-    btnMinus.style.opacity = String(dim);
-    btnPlus.style.opacity  = String(dim);
-    btnMinus.disabled = isOff;
-    btnPlus.disabled  = isOff;
-  }
+    var btnMinus = makeBtn('\u2212', pMinus);
+    var btnPlus  = makeBtn('+',     pPlus);
+    el.appendChild(btnMinus);
+    el.appendChild(btnPlus);
 
-  function cycleHvacMode() {
-    if (!w.entity) return;
-    var state     = entityStates[w.entity];
-    var available = HVAC_MODES;
-    if (state && state.attributes && state.attributes.hvac_modes && state.attributes.hvac_modes.length)
-      available = state.attributes.hvac_modes;
-    var idx  = available.indexOf(currentHvacMode || 'off');
-    var next = available[(idx + 1) % available.length];
-    currentHvacMode = next;
-    modeEl.textContent = String(next).replace(/_/g,' ');
-    applyColors(next);
-    wsSend({ id:msgId++, type:'call_service', domain:'climate', service:'set_hvac_mode',
-             target:{ entity_id:w.entity }, service_data:{ hvac_mode:next } });
-    resetReturnTimer();
-  }
+    function btnPress(btn) {
+      btn.style.transform  = 'scale(0.86)';
+      btn.style.background = arcColor;
+      btn.style.color      = resolveColor('text') || '#fff';
+    }
+    function btnRelease(btn) {
+      btn.style.transform  = '';
+      btn.style.background = resolveColor(w.background || 'surface2');
+      btn.style.color      = resolveColor(w.label_color || 'text_muted');
+    }
 
-  modeEl.addEventListener('click', function(e) { e.stopPropagation(); cycleHvacMode(); });
+    ['mousedown', 'touchstart'].forEach(function(ev) {
+      btnMinus.addEventListener(ev, function() { btnPress(btnMinus);  }, { passive: true });
+      btnPlus.addEventListener( ev, function() { btnPress(btnPlus);   }, { passive: true });
+    });
+    ['mouseup', 'touchend', 'mouseleave'].forEach(function(ev) {
+      btnMinus.addEventListener(ev, function() { btnRelease(btnMinus); });
+      btnPlus.addEventListener( ev, function() { btnRelease(btnPlus);  });
+    });
 
-  function applyState(state) {
-    var ovr = resolveOverrides(w, state) || {};
-    var sp  = getSetpoint(state);
-    if (sp !== null) currentSetpoint = clampStep(sp);
-    fmtTarget(currentSetpoint);
-    updateArc(currentSetpoint);
+    var currentSetpoint = null;
 
-    var curRaw = (state.attributes && state.attributes[currentAttr] !== undefined)
-      ? state.attributes[currentAttr] : null;
-    var humRaw = null;
-    if (humidityEntityId) {
-      var humState = entityStates[humidityEntityId];
-      if (humState) {
-        humRaw = (w.humidity_attribute && humState.attributes &&
-                  humState.attributes[w.humidity_attribute] !== undefined)
-          ? humState.attributes[w.humidity_attribute] : humState.state;
+    function getSetpoint(state) {
+      if (!state) return null;
+      var raw = (state.attributes && state.attributes[valueAttr] !== undefined)
+        ? state.attributes[valueAttr] : state.state;
+      var n = parseFloat(raw);
+      return isNaN(n) ? null : n;
+    }
+
+    function clampStep(v) {
+      var n = Math.round((v - min) / step) * step + min;
+      if (n < min) n = min;
+      if (n > max) n = max;
+      return stepDp > 0 ? parseFloat(n.toFixed(stepDp)) : Math.round(n);
+    }
+
+    function fmtTarget(v) {
+      if (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) {
+        targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
+        return;
       }
-    } else if (state.attributes && state.attributes.current_humidity !== undefined) {
-      humRaw = state.attributes.current_humidity;
+      var num = stepDp > 0 ? Number(v).toFixed(stepDp) : String(Math.round(Number(v)));
+      targetEl.innerHTML = num +
+        '<sup style="font-size:0.38em;font-weight:500;vertical-align:0.55em;letter-spacing:0;opacity:0.75">' +
+        unit + '</sup>';
     }
-    currentEl.textContent = fmtCurrent(curRaw, humRaw);
 
-    var mode = (state.attributes && state.attributes[modeAttr] !== undefined)
-      ? state.attributes[modeAttr] : state.state;
-    currentMode     = mode;
-    currentHvacMode = (state.attributes && state.attributes.hvac_mode !== undefined)
-      ? state.attributes.hvac_mode : state.state;
-    modeEl.textContent = mode ? String(mode).replace(/_/g,' ') : '';
+    function fmtCurrent(v) {
+      var n = parseFloat(v);
+      if (isNaN(n)) return '';
+      return 'room \u00a0' + Math.round(n) + '\u00b0';
+    }
 
-    applyColors(ovr.mode || mode);
-    trackPath.setAttribute('stroke', resolveColor(ovr.background || w.background || 'surface2'));
-    if (ovr.opacity !== undefined) el.style.opacity = ovr.opacity;
-    else if (w.opacity !== undefined) el.style.opacity = w.opacity;
-  }
+    function updateArc(setpoint) {
+      if (setpoint === null) {
+        valuePath.setAttribute('d', '');
+        tickPath.style.display = 'none';
+        return;
+      }
+      var pct = (setpoint - min) / (max - min);
+      if (pct < 0) pct = 0;
+      if (pct > 1) pct = 1;
+      var fillEnd = startAngle + pct * (endAngle - startAngle);
 
-  function sendSetpoint(val) {
-    resetReturnTimer();
-    wsSend({ id:msgId++, type:'call_service', domain:'climate', service:'set_temperature',
-             target:{ entity_id:w.entity }, service_data:{ temperature:val } });
-  }
+      if (pct <= 0) {
+        valuePath.setAttribute('d', '');
+      } else if (pct >= 1) {
+        valuePath.setAttribute('d', describeArc(cx, cy, r, startAngle, endAngle - 0.01));
+      } else {
+        valuePath.setAttribute('d', describeArc(cx, cy, r, startAngle, fillEnd));
+      }
 
-  btnMinus.addEventListener('click', function(e) {
-    e.stopPropagation();
-    if (currentSetpoint === null) return;
-    var next = clampStep(currentSetpoint - step);
-    currentSetpoint = next;
-    fmtTarget(next); updateArc(next); applyColors(currentMode);
-    sendSetpoint(next);
-  });
+      var halfLen = lw * 0.75;
+      var p1 = polarToCartesian(cx, cy, r - halfLen, fillEnd);
+      var p2 = polarToCartesian(cx, cy, r + halfLen, fillEnd);
+      tickPath.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' L ' + p2.x + ' ' + p2.y);
+      tickPath.style.display = '';
+    }
 
-  btnPlus.addEventListener('click', function(e) {
-    e.stopPropagation();
-    if (currentSetpoint === null) return;
-    var next = clampStep(currentSetpoint + step);
-    currentSetpoint = next;
-    fmtTarget(next); updateArc(next); applyColors(currentMode);
-    sendSetpoint(next);
-  });
-
-  if (w.entity) {
-    registerEntityCallback(w.entity, function(state) { applyState(state); });
-    var cached = entityStates[w.entity];
-    if (cached) applyState(cached);
-  }
-
-  if (outdoorEntityId && outdoorEl) {
-    registerEntityCallback(outdoorEntityId, function(state) {
+    function applyState(state) {
       if (!state) return;
-      var raw = (w.outdoor_attribute && state.attributes &&
-                 state.attributes[w.outdoor_attribute] !== undefined)
-        ? state.attributes[w.outdoor_attribute] : state.state;
-      outdoorEl.textContent = fmtOutdoor(raw);
+      var ovr = resolveOverrides(w, state) || {};
+
+      var sp = getSetpoint(state);
+      if (sp !== null) currentSetpoint = clampStep(sp);
+      fmtTarget(currentSetpoint);
+      updateArc(currentSetpoint);
+
+      var curRaw = (state.attributes && state.attributes[currentAttr] !== undefined)
+        ? state.attributes[currentAttr] : null;
+      currentEl.textContent = fmtCurrent(curRaw);
+
+      var mode = (state.attributes && state.attributes[modeAttr] !== undefined)
+        ? state.attributes[modeAttr] : state.state;
+      modeEl.textContent = mode ? String(mode).replace(/_/g, ' ') : '';
+
+      arcColor = resolveColor(ovr.color || w.color || 'primary');
+      targetEl.style.color = arcColor;
+      valuePath.setAttribute('stroke', arcColor);
+      tickPath.setAttribute('stroke', arcColor);
+      trackPath.setAttribute('stroke', resolveColor(ovr.background || w.background || 'surface2'));
+
+      if (ovr.opacity !== undefined) el.style.opacity = ovr.opacity;
+      else if (w.opacity !== undefined) el.style.opacity = w.opacity;
+    }
+
+    function sendSetpoint(val) {
+      resetReturnTimer();
+      wsSend({
+        id:           msgId++,
+        type:         'call_service',
+        domain:       'climate',
+        service:      'set_temperature',
+        target:       { entity_id: w.entity },
+        service_data: { temperature: val }
+      });
+    }
+
+    btnMinus.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (currentSetpoint === null) return;
+      var next = clampStep(currentSetpoint - step);
+      currentSetpoint = next;
+      fmtTarget(next);
+      updateArc(next);
+      sendSetpoint(next);
     });
-    var cachedOutdoor = entityStates[outdoorEntityId];
-    if (cachedOutdoor) {
-      var rawO = (w.outdoor_attribute && cachedOutdoor.attributes &&
-                  cachedOutdoor.attributes[w.outdoor_attribute] !== undefined)
-        ? cachedOutdoor.attributes[w.outdoor_attribute] : cachedOutdoor.state;
-      outdoorEl.textContent = fmtOutdoor(rawO);
+
+    btnPlus.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (currentSetpoint === null) return;
+      var next = clampStep(currentSetpoint + step);
+      currentSetpoint = next;
+      fmtTarget(next);
+      updateArc(next);
+      sendSetpoint(next);
+    });
+
+    if (w.entity) {
+      registerEntityCallback(w.entity, function(state) { applyState(state); });
+      var cached = entityStates[w.entity];
+      if (cached) applyState(cached);
     }
   }
-
-  if (humidityEntityId) {
-    registerEntityCallback(humidityEntityId, function(humState) {
-      var mainState = entityStates[w.entity];
-      if (!mainState) return;
-      var curRaw2 = (mainState.attributes && mainState.attributes[currentAttr] !== undefined)
-        ? mainState.attributes[currentAttr] : null;
-      var humRaw2 = (w.humidity_attribute && humState.attributes &&
-                     humState.attributes[w.humidity_attribute] !== undefined)
-        ? humState.attributes[w.humidity_attribute] : humState.state;
-      currentEl.textContent = fmtCurrent(curRaw2, humRaw2);
-    });
-  }
-}
-
   // -- History Chart --
   // Fetches HA long-term statistics via recorder/statistics_during_period and
   // renders a vertical bar chart. One WS request on page load, then periodic refresh.
@@ -7332,4 +7221,3 @@ function renderThermostat(el, w) {
     init();
   }
 }());
-
