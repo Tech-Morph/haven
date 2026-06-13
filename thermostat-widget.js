@@ -1,313 +1,290 @@
 /* ============================================================
-   HAven - Thermostat Widget  (renderThermostat)
-   Paste this function body into app.js at the thermostat case.
+   HAven - Thermostat Widget  v3  (reference-style horseshoe)
 
-   IMPORTANT: HAven's layout engine sets el.style.left/top/width/height
-   BEFORE calling this function (app.js lines ~965-968). Never overwrite
-   those four properties here or the widget loses its x/y position.
+   Visual layout:
+     ┌──────────────────────────────┐
+     │   horseshoe arc (opens at bottom)  │
+     │     mode label  (small, muted)     │
+     │     75°F        (large, bold)      │
+     │     Set 68°F   (small, muted)     │
+     │     [ − ]   [ + ]                 │
+     ├──────────────────────────────┤
+     │  [Mode/Off] [Fan/Auto] [Swing/Off] │
+     └──────────────────────────────┘
 
-   Layout (flex column, three non-overlapping zones):
-     ┌─────────────────────────────────┐
-     │  MODE ZONE  (chips / dropdown)  │  fixed height
-     ├─────────────────────────────────┤
-     │     ARC ZONE  (SVG gauge)       │  flex-grow:1
-     │   centre: current temp          │
-     │           setpoint label        │
-     ├─────────────────────────────────┤
-     │  CONTROLS ZONE  (− val +)       │  fixed height
-     └─────────────────────────────────┘
+   Arc geometry:
+     Opens at the bottom. Gap from 225° to 315° (90° gap).
+     Track runs  225° → -45° (= 315°) clockwise = 270° sweep.
+     0° = right, angles increase clockwise.
 
-   Config keys:
-     entity        – climate.* entity id (required)
-     unit          – "F" (default) or "C"
-     min           – min setpoint in display unit (default 64°F / 18°C)
-     max           – max setpoint in display unit (default 90°F / 32°C)
-     step          – setpoint step (default 1)
-     mode_layout   – "chips" | "dropdown" | "none"  (default "chips")
-     line_width    – arc stroke width px (default 14)
-     background    – bg color token (default "surface")
-     color         – arc fill token  (default "primary")
-     heat_color    – arc token for heat mode (default "warning")
-     cool_color    – arc token for cool mode (default "primary")
-     label_color   – sub-label token (default "text_muted")
-     radius        – card corner radius px (default 16)
+   RULE: Never set el.style.left/top/width/height – engine owns those.
    ============================================================ */
 
   function renderThermostat(el, w) {
-    el.className += ' widget-thermostat';
 
-    /* --------------------------------------------------
-       1. Config
-    -------------------------------------------------- */
-    var displayUnit = String(w.unit || 'F').toUpperCase();
-    if (displayUnit !== 'C') displayUnit = 'F';
+    /* ------------------------------------------------------------------
+       1.  Config
+    ------------------------------------------------------------------ */
+    var displayUnit = String(w.unit || 'F').toUpperCase() === 'C' ? 'C' : 'F';
+    var defMin  = displayUnit === 'C' ? 18 : 64;
+    var defMax  = displayUnit === 'C' ? 32 : 90;
+    var cfgMin  = isNaN(parseFloat(w.min))  ? defMin  : parseFloat(w.min);
+    var cfgMax  = isNaN(parseFloat(w.max))  ? defMax  : parseFloat(w.max);
+    var cfgStep = isNaN(parseFloat(w.step)) ? 1       : Math.max(0.1, parseFloat(w.step));
+    if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    var defMin  = displayUnit === 'C' ? 18  : 64;
-    var defMax  = displayUnit === 'C' ? 32  : 90;
-    var cfgMin  = w.min  !== undefined ? parseFloat(w.min)  : defMin;
-    var cfgMax  = w.max  !== undefined ? parseFloat(w.max)  : defMax;
-    var cfgStep = w.step !== undefined ? parseFloat(w.step) : 1;
-    if (isNaN(cfgMin))                  cfgMin  = defMin;
-    if (isNaN(cfgMax))                  cfgMax  = defMax;
-    if (isNaN(cfgStep) || cfgStep <= 0) cfgStep = 1;
-    if (cfgMax <= cfgMin)               cfgMax  = cfgMin + cfgStep;
+    var lineWidth  = Math.max(4, parseFloat(w.line_width) || 18);
+    var bgToken    = w.background  || 'surface';
+    var arcToken   = w.color       || 'primary';
+    var heatToken  = w.heat_color  || 'warning';
+    var coolToken  = w.cool_color  || 'primary';
+    var lblToken   = w.label_color || 'text_muted';
+    var cardRadius = isNaN(parseInt(w.radius, 10)) ? 16 : parseInt(w.radius, 10);
 
-    var modeLayout = String(w.mode_layout || 'chips').toLowerCase();
-    if (modeLayout !== 'dropdown' && modeLayout !== 'none') modeLayout = 'chips';
+    /* ------------------------------------------------------------------
+       2.  Helpers
+    ------------------------------------------------------------------ */
+    function rc(tok) { return resolveColor(tok); }
+    function rcS2()  {
+      return rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.08)';
+    }
 
-    var lineWidth  = parseFloat(w.line_width) || 14;
-    if (lineWidth < 4) lineWidth = 14;
-
-    var bgColor    = w.background  || 'surface';
-    var arcColor   = w.color       || 'primary';
-    var heatColor  = w.heat_color  || 'warning';
-    var coolColor  = w.cool_color  || 'primary';
-    var lblColor   = w.label_color || 'text_muted';
-    var cardRadius = w.radius !== undefined ? parseInt(w.radius, 10) : 16;
-
-    /* --------------------------------------------------
-       2. Helpers
-    -------------------------------------------------- */
     var latestState = w.entity ? (entityStates[w.entity] || null) : null;
 
-    function getEntityUnit(state) {
+    function getEU(state) {
       if (!state || !state.attributes) return displayUnit;
       var raw = String(
         state.attributes.temperature_unit ||
-        state.attributes.unit_of_measurement ||
-        displayUnit
-      ).replace('\u00b0', '').toUpperCase();
+        state.attributes.unit_of_measurement || displayUnit
+      ).replace('\u00b0','').toUpperCase();
       return raw === 'C' ? 'C' : 'F';
     }
 
-    function toDisplay(val, eu) {
-      if (displayUnit === 'F' && eu === 'C') return val * 9 / 5 + 32;
-      if (displayUnit === 'C' && eu === 'F') return (val - 32) * 5 / 9;
-      return val;
+    function toDisplay(v, eu) {
+      if (displayUnit === 'F' && eu === 'C') return v * 9/5 + 32;
+      if (displayUnit === 'C' && eu === 'F') return (v - 32) * 5/9;
+      return v;
+    }
+    function toEU(v, eu) {
+      if (displayUnit === 'F' && eu === 'C') return (v - 32) * 5/9;
+      if (displayUnit === 'C' && eu === 'F') return v * 9/5 + 32;
+      return v;
+    }
+    function fmt(v) {
+      if (v === null || v === undefined || isNaN(v)) return '--';
+      return Math.round(v * 10) / 10 + '';
+    }
+    function clamp(v) {
+      v = Math.round(v / cfgStep) * cfgStep;
+      if (v < cfgMin) v = cfgMin;
+      if (v > cfgMax) v = cfgMax;
+      return Math.round(v * 10) / 10;
     }
 
-    function toEntityUnit(val, eu) {
-      if (displayUnit === 'F' && eu === 'C') return (val - 32) * 5 / 9;
-      if (displayUnit === 'C' && eu === 'F') return val * 9 / 5 + 32;
-      return val;
+    /* Arc helpers — gap opens at the bottom
+       Start: 225deg (lower-left)  End: 315deg (lower-right, = -45deg)
+       Sweep: 270 degrees clockwise                                    */
+    var ARC_START = 225;   /* degrees, 0=right, CW */
+    var ARC_SWEEP = 270;
+    var ARC_END   = ARC_START + ARC_SWEEP; /* 495 = same as -45 wrapped */
+
+    function polar(cx, cy, r, deg) {
+      var rad = (deg - 90) * Math.PI / 180;  /* SVG: 0deg = top */
+      /* wait — using standard math convention below: 0deg = right, CW */
+      rad = deg * Math.PI / 180;
+      return {
+        x: cx + r * Math.cos(rad),
+        y: cy + r * Math.sin(rad)
+      };
     }
 
-    function fmtTemp(val) {
-      if (val === null || val === undefined || isNaN(val)) return '--';
-      return (Math.round(val * 10) / 10) + '\u00b0' + displayUnit;
+    function arcPath(cx, cy, r, startDeg, endDeg) {
+      /* sweeps clockwise, large-arc when sweep > 180 */
+      var sweep = endDeg - startDeg;
+      while (sweep < 0)   sweep += 360;
+      while (sweep > 360) sweep -= 360;
+      if (sweep === 0) return '';
+      var s = polar(cx, cy, r, startDeg);
+      var e = polar(cx, cy, r, endDeg);
+      var large = sweep > 180 ? 1 : 0;
+      return [
+        'M', s.x, s.y,
+        'A', r, r, 0, large, 1, e.x, e.y
+      ].join(' ');
     }
 
-    function clampSetpoint(val) {
-      val = Math.round(val / cfgStep) * cfgStep;
-      if (val < cfgMin) val = cfgMin;
-      if (val > cfgMax) val = cfgMax;
-      return Math.round(val * 10) / 10;
-    }
-
-    /* resolveColor shorthand */
-    function rc(token) { return resolveColor(token); }
-
-    /* Fallback surface token: try surface_2 then surface2 */
-    function rcSurface2() {
-      return rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.10)';
-    }
-
-    var MODE_ICONS = {
-      heat: '[mdi:fire]', cool: '[mdi:snowflake]', heat_cool: '[mdi:autorenew]',
-      auto: '[mdi:thermostat-auto]', dry: '[mdi:water-percent]',
-      fan_only: '[mdi:fan]', off: '[mdi:power]'
-    };
-    var MODE_LABELS = {
-      heat: 'Heat', cool: 'Cool', heat_cool: 'Heat/Cool',
-      auto: 'Auto', dry: 'Dry',  fan_only: 'Fan', off: 'Off'
-    };
-
-    function getModeColor(mode) {
-      if (mode === 'heat' || mode === 'heat_cool') return rc(heatColor);
-      if (mode === 'cool')   return rc(coolColor);
-      if (mode === 'auto')   return rc(arcColor);
-      if (mode === 'dry')    return rc('warning');
-      return rc('text_muted');
-    }
-
-    /* --------------------------------------------------
-       3. Zone height budget
-       Use w.w / w.h (the config dimensions the engine used).
-       DO NOT write these back to el.style - engine already did that.
-    -------------------------------------------------- */
+    /* ------------------------------------------------------------------
+       3.  Dimensions  (never write back to el.style)
+    ------------------------------------------------------------------ */
     var wW = w.w;
     var wH = w.h;
 
-    var modeZoneH    = modeLayout === 'none' ? 0 : Math.round(wH * 0.18);
-    var ctrlZoneH    = Math.round(wH * 0.22);
-    var arcZoneH     = wH - modeZoneH - ctrlZoneH;
-    if (arcZoneH < 40) arcZoneH = 40;
+    /* Pills zone at the bottom */
+    var pillH    = Math.max(36, Math.round(wH * 0.18));
+    var pillGap  = 4;
+    var arcZoneH = wH - pillH - pillGap;
 
-    /* --------------------------------------------------
-       4. Root element styling
-       ONLY set: position, display, flex-direction, background,
-       border-radius, overflow, box-sizing.
-       NEVER set: left, top, width, height  (engine owns those).
-    -------------------------------------------------- */
-    el.style.position     = 'relative';
-    el.style.overflow     = 'hidden';
-    el.style.display      = 'flex';
+    /* Arc geometry */
+    /* Centre the circle in the arc zone, but push it up slightly so
+       the gap (opening) falls below centre and the +/- buttons fit */
+    var margin = lineWidth + 6;
+    var r = Math.min(wW, arcZoneH) / 2 - margin;
+    if (r < 12) r = 12;
+    var cx = wW / 2;
+    var cy = arcZoneH * 0.46;   /* slightly above zone centre */
+
+    /* ------------------------------------------------------------------
+       4.  Root element — NEVER touch left/top/width/height
+    ------------------------------------------------------------------ */
+    el.style.position      = 'absolute';   /* keep engine absolute */
+    el.style.overflow      = 'hidden';
+    el.style.display       = 'flex';
     el.style.flexDirection = 'column';
-    el.style.boxSizing    = 'border-box';
-    el.style.background   = rc(bgColor);
-    el.style.borderRadius = cardRadius + 'px';
-    /* Note: el already has position:absolute + left/top/width/height from
-       the engine. Adding position:relative here overrides that and breaks
-       layout. Use position:absolute and rely on flex children for internal
-       layout. Reset: */
-    el.style.position = 'absolute';  /* keep engine's absolute positioning */
+    el.style.boxSizing     = 'border-box';
+    el.style.background    = rc(bgToken);
+    el.style.borderRadius  = cardRadius + 'px';
+    el.style.userSelect    = 'none';
 
-    /* --------------------------------------------------
-       5. MODE ZONE
-    -------------------------------------------------- */
-    var modeZone = document.createElement('div');
-    modeZone.style.cssText = [
-      'flex:0 0 ' + modeZoneH + 'px',
-      'display:' + (modeLayout === 'none' ? 'none' : 'flex'),
-      'align-items:center',
-      'justify-content:center',
-      'overflow:hidden',
-      'width:100%',
-      'padding:0 6px',
-      'box-sizing:border-box'
-    ].join(';');
-    el.appendChild(modeZone);
-
-    /* --------------------------------------------------
-       6. ARC ZONE
-    -------------------------------------------------- */
+    /* ------------------------------------------------------------------
+       5.  Arc zone
+    ------------------------------------------------------------------ */
     var arcZone = document.createElement('div');
     arcZone.style.cssText = [
       'position:relative',
-      'flex:1 1 0',
-      'min-height:0',
+      'flex:0 0 ' + arcZoneH + 'px',
       'width:100%',
-      'overflow:hidden'
+      'overflow:visible'
     ].join(';');
     el.appendChild(arcZone);
 
-    /* Geometry: arc fitted inside the arc zone */
-    var arcW = wW;
-    var arcH = arcZoneH;
-    var size = Math.min(arcW, arcH);
-    var cx   = arcW / 2;
-    var cy   = arcH / 2;
-    var r    = (size / 2) - (lineWidth / 2) - 4;
-    if (r < 8) r = 8;
-
-    var START_ANG = 135;
-    var END_ANG   = 405;
-
+    /* SVG */
     var ns  = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('width',  arcW);
-    svg.setAttribute('height', arcH);
+    svg.setAttribute('width',  wW);
+    svg.setAttribute('height', arcZoneH);
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;';
     arcZone.appendChild(svg);
 
-    /* Track ring */
-    var trackPath = document.createElementNS(ns, 'path');
-    trackPath.setAttribute('fill',          'none');
-    trackPath.setAttribute('stroke',         rcSurface2());
-    trackPath.setAttribute('stroke-width',   lineWidth);
-    trackPath.setAttribute('stroke-linecap', 'round');
-    trackPath.setAttribute('d', describeArc(cx, cy, r, START_ANG, END_ANG));
-    svg.appendChild(trackPath);
+    /* Track */
+    var trackEl = document.createElementNS(ns, 'path');
+    trackEl.setAttribute('fill',          'none');
+    trackEl.setAttribute('stroke',         rcS2());
+    trackEl.setAttribute('stroke-width',   lineWidth);
+    trackEl.setAttribute('stroke-linecap', 'round');
+    trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
+    svg.appendChild(trackEl);
 
-    /* Value arc - primary / single / heat-low */
-    var valuePath = document.createElementNS(ns, 'path');
-    valuePath.setAttribute('fill',          'none');
-    valuePath.setAttribute('stroke-width',   lineWidth);
-    valuePath.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(valuePath);
+    /* Value arc */
+    var valueEl = document.createElementNS(ns, 'path');
+    valueEl.setAttribute('fill',          'none');
+    valueEl.setAttribute('stroke-width',   lineWidth);
+    valueEl.setAttribute('stroke-linecap', 'round');
+    valueEl.setAttribute('stroke',         rc(arcToken));
+    svg.appendChild(valueEl);
 
-    /* Value arc 2 - heat-high in dual mode (dashed, thinner) */
-    var valuePath2 = document.createElementNS(ns, 'path');
-    valuePath2.setAttribute('fill',           'none');
-    valuePath2.setAttribute('stroke-width',    Math.max(4, Math.round(lineWidth * 0.6)));
-    valuePath2.setAttribute('stroke-linecap',  'round');
-    valuePath2.setAttribute('stroke-dasharray','5 7');
-    valuePath2.style.display = 'none';
-    svg.appendChild(valuePath2);
+    /* Value arc 2 (heat_cool dual) */
+    var value2El = document.createElementNS(ns, 'path');
+    value2El.setAttribute('fill',          'none');
+    value2El.setAttribute('stroke-width',  Math.max(4, Math.round(lineWidth * 0.6)));
+    value2El.setAttribute('stroke-linecap','round');
+    value2El.setAttribute('stroke-dasharray','5 7');
+    value2El.style.display = 'none';
+    svg.appendChild(value2El);
 
-    /* Centre label - absolutely centred inside arcZone */
-    var labelDiv = document.createElement('div');
-    labelDiv.style.cssText = [
-      'position:absolute',
-      'top:0', 'left:0',
-      'width:100%',
-      'height:100%',
-      'display:flex',
-      'flex-direction:column',
-      'align-items:center',
-      'justify-content:center',
-      'text-align:center',
-      'pointer-events:none'
+    /* ------------------------------------------------------------------
+       6.  Centre label overlay (inside arcZone, full-size)
+    ------------------------------------------------------------------ */
+    var centreDiv = document.createElement('div');
+    centreDiv.style.cssText = [
+      'position:absolute', 'top:0', 'left:0',
+      'width:100%', 'height:100%',
+      'display:flex', 'flex-direction:column',
+      'align-items:center', 'justify-content:center',
+      'text-align:center', 'pointer-events:none',
+      /* nudge text to sit at the arc visual centre (slightly above
+         geometric centre because arc opens at bottom)          */
+      'padding-bottom:' + Math.round(arcZoneH * 0.08) + 'px'
     ].join(';');
-    arcZone.appendChild(labelDiv);
+    arcZone.appendChild(centreDiv);
 
-    var fsCur = Math.max(14, Math.round(size * 0.20));
-    var fsSP  = Math.max(10, Math.round(size * 0.11));
+    /* Mode label  e.g. "Off" / "Cool" */
+    var fsModeLabel = Math.max(10, Math.round(wW * 0.09));
+    var modeLabelEl = document.createElement('div');
+    modeLabelEl.style.cssText = [
+      'font-size:'   + fsModeLabel + 'px',
+      'font-weight:500',
+      'color:'       + rc(lblToken),
+      'line-height:1.2',
+      'letter-spacing:0.04em',
+      'text-transform:capitalize'
+    ].join(';');
+    modeLabelEl.textContent = 'Off';
+    centreDiv.appendChild(modeLabelEl);
 
-    var currentTempEl = document.createElement('div');
-    currentTempEl.style.cssText = [
-      'font-size:'   + fsCur + 'px',
+    /* Current temperature  — big, with superscript unit */
+    var fsCur = Math.max(28, Math.round(wW * 0.28));
+    var fsUnit = Math.max(12, Math.round(fsCur * 0.38));
+    var curWrap = document.createElement('div');
+    curWrap.style.cssText = [
+      'display:flex', 'align-items:flex-start', 'justify-content:center',
+      'line-height:1', 'margin-top:2px'
+    ].join(';');
+
+    var curNumEl = document.createElement('span');
+    curNumEl.style.cssText = [
+      'font-size:'  + fsCur + 'px',
       'font-weight:700',
-      'line-height:1',
-      'color:'       + rc('text')
+      'letter-spacing:-0.02em',
+      'color:'      + rc('text')
     ].join(';');
-    currentTempEl.textContent = '--';
-    labelDiv.appendChild(currentTempEl);
+    curNumEl.textContent = '--';
+    curWrap.appendChild(curNumEl);
 
-    var setpointLabelEl = document.createElement('div');
-    setpointLabelEl.style.cssText = [
+    var curUnitEl = document.createElement('span');
+    curUnitEl.style.cssText = [
+      'font-size:'   + fsUnit + 'px',
+      'font-weight:600',
+      'color:'       + rc(lblToken),
+      'margin-top:'  + Math.round(fsCur * 0.08) + 'px',
+      'margin-left:2px'
+    ].join(';');
+    curUnitEl.textContent = '\u00b0' + displayUnit;
+    curWrap.appendChild(curUnitEl);
+    centreDiv.appendChild(curWrap);
+
+    /* Setpoint label  e.g. "Set 68°F" */
+    var fsSP = Math.max(9, Math.round(wW * 0.08));
+    var spLabelEl = document.createElement('div');
+    spLabelEl.style.cssText = [
       'font-size:'   + fsSP + 'px',
       'font-weight:500',
-      'line-height:1',
+      'color:'       + rc(lblToken),
       'margin-top:4px',
-      'color:'       + rc(lblColor)
+      'line-height:1'
     ].join(';');
-    setpointLabelEl.textContent = 'Set --';
-    labelDiv.appendChild(setpointLabelEl);
+    spLabelEl.textContent = 'Set --';
+    centreDiv.appendChild(spLabelEl);
 
-    /* --------------------------------------------------
-       7. CONTROLS ZONE
-    -------------------------------------------------- */
-    var ctrlZone = document.createElement('div');
-    ctrlZone.style.cssText = [
-      'flex:0 0 ' + ctrlZoneH + 'px',
-      'display:flex',
-      'flex-direction:column',
-      'align-items:center',
-      'justify-content:center',
-      'gap:4px',
-      'width:100%',
-      'box-sizing:border-box',
-      'padding:0 6px 4px 6px'
-    ].join(';');
-    el.appendChild(ctrlZone);
+    /* − / + buttons — positioned absolute near the arc gap */
+    var btnSize = Math.max(24, Math.round(wW * 0.16));
+    var btnFS   = Math.max(14, Math.round(btnSize * 0.52));
+    var btnGap  = Math.round(wW * 0.10);
+    var btnY    = Math.round(cy + r * Math.sin(ARC_START * Math.PI / 180) - btnSize * 0.3);
+    /* keep buttons inside zone */
+    if (btnY + btnSize > arcZoneH) btnY = arcZoneH - btnSize - 4;
+    if (btnY < 0) btnY = 4;
 
-    var btnSize  = Math.max(22, Math.round(ctrlZoneH * 0.44));
-    var btnFS    = Math.round(btnSize * 0.56);
-    var valFS    = Math.max(10, Math.round(ctrlZoneH * 0.30));
-    var rowLblFS = Math.max(9,  Math.round(ctrlZoneH * 0.22));
-
-    function makePMBtn(label, handler) {
+    function makePMBtn(label, onclick) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = label;
       btn.style.cssText = [
-        'flex:0 0 auto',
+        'position:absolute',
         'width:'         + btnSize + 'px',
         'height:'        + btnSize + 'px',
-        'border:none',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
-        'background:'    + rcSurface2(),
+        'border:none',
+        'background:'    + rcS2(),
         'color:'         + rc('text'),
         'font-size:'     + btnFS + 'px',
         'font-family:inherit',
@@ -317,381 +294,428 @@
         'justify-content:center',
         'padding:0',
         'line-height:1',
-        'user-select:none',
-        '-webkit-user-select:none'
+        'top:'           + btnY + 'px',
+        'pointer-events:auto'
       ].join(';');
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
-        handler();
+        onclick();
         if (typeof resetReturnTimer === 'function') resetReturnTimer();
       });
-      btn.addEventListener('mousedown',  function() { btn.style.opacity = '0.6'; });
-      btn.addEventListener('mouseup',    function() { btn.style.opacity = '1'; });
-      btn.addEventListener('mouseleave', function() { btn.style.opacity = '1'; });
-      btn.addEventListener('touchstart', function() { btn.style.opacity = '0.6'; }, { passive: true });
-      btn.addEventListener('touchend',   function() { btn.style.opacity = '1'; });
+      btn.addEventListener('mousedown',  function(){ btn.style.opacity='0.5'; });
+      btn.addEventListener('mouseup',    function(){ btn.style.opacity='1'; });
+      btn.addEventListener('mouseleave', function(){ btn.style.opacity='1'; });
+      btn.addEventListener('touchstart', function(){ btn.style.opacity='0.5'; }, {passive:true});
+      btn.addEventListener('touchend',   function(){ btn.style.opacity='1'; });
       return btn;
     }
 
-    function makeCtrlRow(rowLabel, onMinus, onPlus) {
-      var row = document.createElement('div');
-      row.style.cssText = [
+    var minusBtn = makePMBtn('\u2212', function(){ adjustSetpoint(-cfgStep); });
+    var plusBtn  = makePMBtn('+',       function(){ adjustSetpoint(cfgStep);  });
+    /* position: minus left of centre, plus right */
+    minusBtn.style.left = Math.round(cx - btnGap - btnSize) + 'px';
+    plusBtn.style.left  = Math.round(cx + btnGap)           + 'px';
+    arcZone.appendChild(minusBtn);
+    arcZone.appendChild(plusBtn);
+
+    /* Dual setpoint +/- (hidden by default, shown only in heat_cool) */
+    var minusBtnLo = makePMBtn('\u2212', function(){ adjustDualLow(-cfgStep); });
+    var plusBtnLo  = makePMBtn('+',      function(){ adjustDualLow(cfgStep);  });
+    var minusBtnHi = makePMBtn('\u2212', function(){ adjustDualHigh(-cfgStep); });
+    var plusBtnHi  = makePMBtn('+',      function(){ adjustDualHigh(cfgStep);  });
+    minusBtnLo.style.left = minusBtnHi.style.left = minusBtn.style.left;
+    plusBtnLo.style.left  = plusBtnHi.style.left  = plusBtn.style.left;
+    /* stack: lo row above hi row */
+    var dualBtnYLo = Math.max(4, btnY - Math.round(btnSize * 1.3));
+    var dualBtnYHi = btnY;
+    minusBtnLo.style.top = plusBtnLo.style.top = dualBtnYLo + 'px';
+    minusBtnHi.style.top = plusBtnHi.style.top = dualBtnYHi + 'px';
+    [minusBtnLo,plusBtnLo,minusBtnHi,plusBtnHi].forEach(function(b){ b.style.display='none'; });
+    arcZone.appendChild(minusBtnLo);
+    arcZone.appendChild(plusBtnLo);
+    arcZone.appendChild(minusBtnHi);
+    arcZone.appendChild(plusBtnHi);
+
+    /* ------------------------------------------------------------------
+       7.  Pills zone  (Mode · Fan mode · Swing mode)
+    ------------------------------------------------------------------ */
+    var pillsZone = document.createElement('div');
+    pillsZone.style.cssText = [
+      'flex:0 0 ' + pillH + 'px',
+      'display:flex',
+      'flex-direction:row',
+      'align-items:stretch',
+      'gap:' + pillGap + 'px',
+      'padding:0 ' + pillGap + 'px ' + pillGap + 'px ' + pillGap + 'px',
+      'box-sizing:border-box',
+      'width:100%'
+    ].join(';');
+    el.appendChild(pillsZone);
+
+    /* helper: create one pill */
+    var pillFS1 = Math.max(8, Math.round(pillH * 0.24));
+    var pillFS2 = Math.max(9, Math.round(pillH * 0.28));
+    var pillIconFS = Math.max(10, Math.round(pillH * 0.36));
+
+    function makePill(iconStr, topText, bottomText) {
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.style.cssText = [
+        'flex:1 1 0',
+        'min-width:0',
+        'border:none',
+        'border-radius:' + Math.round(pillH * 0.3) + 'px',
+        'background:'    + rcS2(),
+        'color:'         + rc('text'),
         'display:flex',
         'flex-direction:row',
         'align-items:center',
-        'justify-content:center',
-        'gap:8px',
-        'width:100%'
+        'justify-content:flex-start',
+        'gap:5px',
+        'padding:0 7px',
+        'box-sizing:border-box',
+        'cursor:pointer',
+        'font-family:inherit',
+        'overflow:hidden'
       ].join(';');
 
-      var lbl = document.createElement('span');
-      lbl.style.cssText = [
-        'font-size:' + rowLblFS + 'px',
-        'color:'     + rc(lblColor),
-        'min-width:16px',
-        'text-align:left',
-        'flex-shrink:0'
+      var iconSpan = document.createElement('span');
+      setContent(iconSpan, iconStr);
+      iconSpan.style.cssText = [
+        'font-size:' + pillIconFS + 'px',
+        'flex:0 0 auto',
+        'color:'     + rc(lblToken)
       ].join(';');
-      lbl.textContent = rowLabel || '';
+      pill.appendChild(iconSpan);
 
-      var btnMinus = makePMBtn('\u2212', onMinus);
+      var txtWrap = document.createElement('div');
+      txtWrap.style.cssText = [
+        'display:flex', 'flex-direction:column',
+        'align-items:flex-start', 'min-width:0'
+      ].join(';');
 
-      var valEl = document.createElement('span');
-      valEl.style.cssText = [
-        'font-size:'    + valFS + 'px',
+      var line1 = document.createElement('span');
+      line1.style.cssText = [
+        'font-size:'    + pillFS1 + 'px',
+        'font-weight:400',
+        'color:'        + rc(lblToken),
+        'line-height:1.1',
+        'white-space:nowrap',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'max-width:100%'
+      ].join(';');
+      line1.textContent = topText;
+
+      var line2 = document.createElement('span');
+      line2.style.cssText = [
+        'font-size:'    + pillFS2 + 'px',
         'font-weight:600',
         'color:'        + rc('text'),
-        'min-width:'    + Math.round(wW * 0.26) + 'px',
-        'text-align:center',
-        'flex-shrink:0',
-        'display:inline-block'
+        'line-height:1.1',
+        'white-space:nowrap',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'max-width:100%'
       ].join(';');
-      valEl.textContent = '--';
+      line2.textContent = bottomText;
 
-      var btnPlus = makePMBtn('+', onPlus);
+      txtWrap.appendChild(line1);
+      txtWrap.appendChild(line2);
+      pill.appendChild(txtWrap);
 
-      row.appendChild(lbl);
-      row.appendChild(btnMinus);
-      row.appendChild(valEl);
-      row.appendChild(btnPlus);
-      return { row: row, valEl: valEl };
+      pill.addEventListener('mousedown',  function(){ pill.style.opacity='0.6'; });
+      pill.addEventListener('mouseup',    function(){ pill.style.opacity='1'; });
+      pill.addEventListener('mouseleave', function(){ pill.style.opacity='1'; });
+      pill.addEventListener('touchstart', function(){ pill.style.opacity='0.6'; }, {passive:true});
+      pill.addEventListener('touchend',   function(){ pill.style.opacity='1'; });
+
+      return { pill:pill, icon:iconSpan, line1:line1, line2:line2 };
     }
 
-    /* Single setpoint row */
-    var singleSetpoint = Math.round((cfgMin + cfgMax) / 2);
-    var singleCtrl = makeCtrlRow('',
-      function() { adjustSetpoint(-cfgStep); },
-      function() { adjustSetpoint(cfgStep);  });
-    ctrlZone.appendChild(singleCtrl.row);
+    var modePill  = makePill('[mdi:power]',          'Mode',     'Off');
+    var fanPill   = makePill('[mdi:fan]',             'Fan mode', 'Auto');
+    var swingPill = makePill('[mdi:arrow-split-vertical]', 'Swing mode', 'Off');
 
-    /* Dual setpoint rows */
-    var dualLow  = clampSetpoint(cfgMin + (cfgMax - cfgMin) * 0.35);
-    var dualHigh = clampSetpoint(cfgMin + (cfgMax - cfgMin) * 0.65);
-    var dualCtrlLow  = makeCtrlRow('Lo',
-      function() { adjustDualLow(-cfgStep);  },
-      function() { adjustDualLow(cfgStep);   });
-    var dualCtrlHigh = makeCtrlRow('Hi',
-      function() { adjustDualHigh(-cfgStep); },
-      function() { adjustDualHigh(cfgStep);  });
-    ctrlZone.appendChild(dualCtrlLow.row);
-    ctrlZone.appendChild(dualCtrlHigh.row);
-    dualCtrlLow.row.style.display  = 'none';
-    dualCtrlHigh.row.style.display = 'none';
+    [modePill, fanPill, swingPill].forEach(function(p){ pillsZone.appendChild(p.pill); });
 
-    /* --------------------------------------------------
-       8. Mode selector
-    -------------------------------------------------- */
-    var modeDropdown = null;
-    var modeChipsMap = {};
-    var currentModes = [];
-    var currentMode  = '';
-    var isDual       = false;
+    /* Mode picker overlay — shown above the pills row when Mode pill tapped */
+    var modeOverlay = null;
+    var modePickerOpen = false;
 
-    var chipH  = Math.max(18, Math.round(modeZoneH * 0.62));
-    var chipFS = Math.max(9,  Math.round(chipH * 0.56));
+    modePill.pill.addEventListener('click', function(e){
+      e.stopPropagation();
+      toggleModePicker();
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
+    });
 
-    function buildChips(modes) {
-      modeZone.innerHTML = '';
-      modeChipsMap = {};
-      if (!modes || !modes.length) return;
-
-      var row = document.createElement('div');
-      row.style.cssText = [
+    function toggleModePicker() {
+      if (modePickerOpen) { closeModePicker(); return; }
+      modePickerOpen = true;
+      modeOverlay = document.createElement('div');
+      modeOverlay.style.cssText = [
+        'position:absolute',
+        'bottom:' + (pillH + pillGap) + 'px',
+        'left:' + pillGap + 'px',
+        'right:' + pillGap + 'px',
+        'background:' + rc(bgToken),
+        'border-radius:' + Math.round(pillH * 0.3) + 'px',
+        'padding:6px',
         'display:flex',
         'flex-wrap:wrap',
+        'gap:4px',
         'justify-content:center',
-        'align-items:center',
-        'gap:3px',
-        'width:100%'
+        'box-shadow:0 4px 20px rgba(0,0,0,0.4)',
+        'z-index:10'
       ].join(';');
 
-      modes.forEach(function(mode) {
+      var MODES = ['auto','heat','cool','heat_cool','dry','fan_only','off'];
+      var ICONS = {
+        heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
+        auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
+        fan_only:'[mdi:fan]', off:'[mdi:power]'
+      };
+      var LABELS = {
+        heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool',
+        auto:'Auto', dry:'Dry',  fan_only:'Fan', off:'Off'
+      };
+      var availModes = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
+        ? latestState.attributes.hvac_modes
+        : MODES;
+
+      availModes.forEach(function(mode){
         var chip = document.createElement('button');
         chip.type = 'button';
+        var chipH2 = Math.max(20, Math.round(pillH * 0.70));
+        var chipFS2 = Math.max(9, Math.round(chipH2 * 0.52));
         chip.style.cssText = [
           'border:none',
-          'border-radius:' + Math.round(chipH / 2) + 'px',
-          'height:'        + chipH + 'px',
-          'padding:0 7px',
-          'font-size:'     + chipFS + 'px',
+          'border-radius:' + Math.round(chipH2/2) + 'px',
+          'height:'        + chipH2 + 'px',
+          'padding:0 8px',
+          'background:'    + rcS2(),
+          'color:'         + rc('text'),
+          'font-size:'     + chipFS2 + 'px',
           'font-family:inherit',
           'cursor:pointer',
           'display:flex',
           'align-items:center',
-          'gap:3px',
-          'line-height:1',
-          'white-space:nowrap',
-          'user-select:none',
-          '-webkit-user-select:none'
+          'gap:4px'
         ].join(';');
-
-        var iconEl = document.createElement('span');
-        setContent(iconEl, MODE_ICONS[mode] || '[mdi:thermostat]');
-        iconEl.style.fontSize = chipFS + 'px';
-        chip.appendChild(iconEl);
-
-        var txtEl = document.createElement('span');
-        txtEl.textContent = MODE_LABELS[mode] || mode;
-        chip.appendChild(txtEl);
-
-        chip.addEventListener('click', function(e) {
+        var ic = document.createElement('span');
+        setContent(ic, ICONS[mode] || '[mdi:thermostat]');
+        ic.style.fontSize = chipFS2 + 'px';
+        chip.appendChild(ic);
+        var tx = document.createElement('span');
+        tx.textContent = LABELS[mode] || mode;
+        chip.appendChild(tx);
+        chip.addEventListener('click', function(e){
           e.stopPropagation();
           sendMode(mode);
+          closeModePicker();
           if (typeof resetReturnTimer === 'function') resetReturnTimer();
         });
-        chip.addEventListener('mousedown',  function() { chip.style.opacity = '0.6'; });
-        chip.addEventListener('mouseup',    function() { chip.style.opacity = '1'; });
-        chip.addEventListener('mouseleave', function() { chip.style.opacity = '1'; });
-        chip.addEventListener('touchstart', function() { chip.style.opacity = '0.6'; }, { passive: true });
-        chip.addEventListener('touchend',   function() { chip.style.opacity = '1'; });
-
-        row.appendChild(chip);
-        modeChipsMap[mode] = chip;
+        modeOverlay.appendChild(chip);
       });
 
-      modeZone.appendChild(row);
+      el.appendChild(modeOverlay);
+      setTimeout(function(){
+        document.addEventListener('click', closeModePickerExternal);
+      }, 0);
     }
 
-    function buildDropdown(modes) {
-      modeZone.innerHTML = '';
-      if (!modes || !modes.length) return;
-
-      var sel = document.createElement('select');
-      sel.style.cssText = [
-        'border:none',
-        'border-radius:6px',
-        'background:' + rcSurface2(),
-        'color:'      + rc('text'),
-        'font-size:'  + Math.max(10, Math.round(modeZoneH * 0.40)) + 'px',
-        'padding:2px 8px',
-        'font-family:inherit',
-        'cursor:pointer',
-        'max-width:'  + (wW - 16) + 'px'
-      ].join(';');
-
-      modes.forEach(function(mode) {
-        var opt = document.createElement('option');
-        opt.value = mode;
-        opt.textContent = MODE_LABELS[mode] || mode;
-        sel.appendChild(opt);
-      });
-
-      sel.addEventListener('change', function() {
-        sendMode(sel.value);
-        if (typeof resetReturnTimer === 'function') resetReturnTimer();
-      });
-      modeDropdown = sel;
-      modeZone.appendChild(sel);
+    function closeModePickerExternal() {
+      closeModePicker();
+    }
+    function closeModePicker() {
+      if (modeOverlay && modeOverlay.parentNode) modeOverlay.parentNode.removeChild(modeOverlay);
+      modeOverlay = null;
+      modePickerOpen = false;
+      document.removeEventListener('click', closeModePickerExternal);
     }
 
-    function styleChips(activeMode) {
-      for (var mk in modeChipsMap) {
-        if (!modeChipsMap.hasOwnProperty(mk)) continue;
-        var chip = modeChipsMap[mk];
-        var active = (mk === activeMode);
-        chip.style.background = active ? getModeColor(mk) : rcSurface2();
-        chip.style.color      = active ? '#ffffff' : rc('text');
-      }
+    /* ------------------------------------------------------------------
+       8.  Setpoint state
+    ------------------------------------------------------------------ */
+    var singleSP = clamp((cfgMin + cfgMax) / 2);
+    var dualLow  = clamp(cfgMin + (cfgMax - cfgMin) * 0.35);
+    var dualHigh = clamp(cfgMin + (cfgMax - cfgMin) * 0.65);
+    var isDual   = false;
+    var curMode  = 'off';
+
+    /* ------------------------------------------------------------------
+       9.  Arc update
+    ------------------------------------------------------------------ */
+    var MODE_COLORS = {
+      heat:'warning', cool:'primary', heat_cool:'primary',
+      auto:'primary', dry:'warning',  fan_only:'text_muted', off:'text_muted'
+    };
+
+    function modeColor(m) {
+      var tok = MODE_COLORS[m] || arcToken;
+      if (m === 'heat' || m === 'heat_cool') tok = heatToken;
+      if (m === 'cool' || m === 'auto')       tok = coolToken;
+      return rc(tok);
     }
 
-    function updateModeUI(mode, modes) {
-      if (modeLayout === 'none') return;
-
-      if (modeLayout === 'dropdown') {
-        if (!modeDropdown && modes && modes.length) buildDropdown(modes);
-        if (modeDropdown) modeDropdown.value = mode || '';
-        return;
-      }
-
-      /* chips - rebuild if mode list changed */
-      var needRebuild = !currentModes.length;
-      if (!needRebuild && modes) {
-        if (modes.length !== currentModes.length) {
-          needRebuild = true;
-        } else {
-          for (var i = 0; i < modes.length; i++) {
-            if (modes[i] !== currentModes[i]) { needRebuild = true; break; }
-          }
-        }
-      }
-      if (needRebuild && modes && modes.length) {
-        currentModes = modes.slice();
-        buildChips(modes);
-      }
-      styleChips(mode);
-    }
-
-    /* --------------------------------------------------
-       9. Arc drawing
-    -------------------------------------------------- */
     function spToPct(sp) {
       var p = (sp - cfgMin) / (cfgMax - cfgMin);
       return p < 0 ? 0 : p > 1 ? 1 : p;
     }
 
-    function redrawArc() {
-      var color = getModeColor(currentMode);
-      currentTempEl.style.color = color;
+    function redraw() {
+      var col = modeColor(curMode);
+      curNumEl.style.color = col;
 
       if (isDual) {
-        var pLo = spToPct(dualLow);
-        var pHi = spToPct(dualHigh);
-        var aLo = START_ANG + pLo * (END_ANG - START_ANG);
-        var aHi = START_ANG + pHi * (END_ANG - START_ANG);
+        var pLo  = spToPct(dualLow);
+        var pHi  = spToPct(dualHigh);
+        var aLo  = ARC_START + pLo * ARC_SWEEP;
+        var aHi  = ARC_START + pHi * ARC_SWEEP;
 
-        valuePath.setAttribute('stroke', getModeColor('heat'));
-        valuePath.setAttribute('d',
-          pLo <= 0
-            ? ''
-            : describeArc(cx, cy, r, START_ANG, Math.max(START_ANG + 0.5, aLo)));
+        valueEl.setAttribute('stroke', modeColor('heat'));
+        valueEl.setAttribute('d', pLo <= 0 ? '' : arcPath(cx, cy, r, ARC_START, aLo));
 
-        valuePath2.setAttribute('stroke', getModeColor('cool'));
-        valuePath2.style.display = '';
-        valuePath2.setAttribute('d',
-          pHi <= pLo ? '' : describeArc(cx, cy, r, aLo, aHi));
+        value2El.setAttribute('stroke', modeColor('cool'));
+        value2El.style.display = '';
+        value2El.setAttribute('d', pHi <= pLo ? '' : arcPath(cx, cy, r, aLo, aHi));
 
-        setpointLabelEl.textContent = fmtTemp(dualLow) + ' \u2013 ' + fmtTemp(dualHigh);
+        spLabelEl.textContent = fmt(dualLow) + '\u00b0\u2013' + fmt(dualHigh) + '\u00b0' + displayUnit;
       } else {
-        var pct = spToPct(singleSetpoint);
-        var ang = START_ANG + pct * (END_ANG - START_ANG);
+        var pct = spToPct(singleSP);
+        var ang = ARC_START + pct * ARC_SWEEP;
 
-        valuePath.setAttribute('stroke', color);
-        valuePath.setAttribute('d',
+        valueEl.setAttribute('stroke', col);
+        valueEl.setAttribute('d',
           pct <= 0 ? '' :
-          pct >= 1 ? describeArc(cx, cy, r, START_ANG, END_ANG - 0.5) :
-                     describeArc(cx, cy, r, START_ANG, ang));
+          pct >= 1 ? arcPath(cx, cy, r, ARC_START, ARC_END - 0.5) :
+                     arcPath(cx, cy, r, ARC_START, ang));
 
-        valuePath2.style.display = 'none';
-        setpointLabelEl.textContent = 'Set ' + fmtTemp(singleSetpoint);
+        value2El.style.display = 'none';
+        spLabelEl.textContent  = 'Set ' + fmt(singleSP) + '\u00b0' + displayUnit;
       }
     }
 
-    /* --------------------------------------------------
-       10. Service calls
-    -------------------------------------------------- */
-    function sendSingleTemp() {
-      if (!w.entity) return;
-      var eu  = getEntityUnit(latestState);
-      var val = Math.round(toEntityUnit(singleSetpoint, eu) * 2) / 2;
-      handleAction({ type: 'service', service: 'climate.set_temperature',
-        data: { entity_id: w.entity, temperature: val } });
-    }
-
-    function sendDualTemp() {
-      if (!w.entity) return;
-      var eu = getEntityUnit(latestState);
-      handleAction({ type: 'service', service: 'climate.set_temperature',
-        data: {
-          entity_id:        w.entity,
-          target_temp_low:  Math.round(toEntityUnit(dualLow,  eu) * 2) / 2,
-          target_temp_high: Math.round(toEntityUnit(dualHigh, eu) * 2) / 2
-        }
-      });
-    }
-
-    function sendMode(mode) {
-      if (!w.entity) return;
-      handleAction({ type: 'service', service: 'climate.set_hvac_mode',
-        data: { entity_id: w.entity, hvac_mode: mode } });
-      currentMode = mode;
-      styleChips(mode);
-      redrawArc();
-    }
-
-    /* --------------------------------------------------
-       11. Setpoint adjusters
-    -------------------------------------------------- */
+    /* ------------------------------------------------------------------
+       10. Adjusters
+    ------------------------------------------------------------------ */
     function adjustSetpoint(delta) {
-      singleSetpoint = clampSetpoint(singleSetpoint + delta);
-      singleCtrl.valEl.textContent = fmtTemp(singleSetpoint);
-      redrawArc();
+      singleSP = clamp(singleSP + delta);
+      spLabelEl.textContent = 'Set ' + fmt(singleSP) + '\u00b0' + displayUnit;
+      redraw();
       sendSingleTemp();
     }
-
     function adjustDualLow(delta) {
-      dualLow = clampSetpoint(dualLow + delta);
-      if (dualLow >= dualHigh) dualLow = clampSetpoint(dualHigh - cfgStep);
-      dualCtrlLow.valEl.textContent = fmtTemp(dualLow);
-      redrawArc();
+      dualLow = clamp(dualLow + delta);
+      if (dualLow >= dualHigh) dualLow = clamp(dualHigh - cfgStep);
+      redraw();
       sendDualTemp();
     }
-
     function adjustDualHigh(delta) {
-      dualHigh = clampSetpoint(dualHigh + delta);
-      if (dualHigh <= dualLow) dualHigh = clampSetpoint(dualLow + cfgStep);
-      dualCtrlHigh.valEl.textContent = fmtTemp(dualHigh);
-      redrawArc();
+      dualHigh = clamp(dualHigh + delta);
+      if (dualHigh <= dualLow) dualHigh = clamp(dualLow + cfgStep);
+      redraw();
       sendDualTemp();
     }
 
-    /* --------------------------------------------------
+    /* ------------------------------------------------------------------
+       11. Service calls
+    ------------------------------------------------------------------ */
+    function sendSingleTemp() {
+      if (!w.entity) return;
+      var eu  = getEU(latestState);
+      var val = Math.round(toEU(singleSP, eu) * 2) / 2;
+      handleAction({ type:'service', service:'climate.set_temperature',
+        data:{ entity_id:w.entity, temperature:val } });
+    }
+    function sendDualTemp() {
+      if (!w.entity) return;
+      var eu = getEU(latestState);
+      handleAction({ type:'service', service:'climate.set_temperature',
+        data:{ entity_id:w.entity,
+          target_temp_low:  Math.round(toEU(dualLow,  eu)*2)/2,
+          target_temp_high: Math.round(toEU(dualHigh, eu)*2)/2 } });
+    }
+    function sendMode(mode) {
+      if (!w.entity) return;
+      handleAction({ type:'service', service:'climate.set_hvac_mode',
+        data:{ entity_id:w.entity, hvac_mode:mode } });
+    }
+
+    /* ------------------------------------------------------------------
        12. State application
-    -------------------------------------------------- */
+    ------------------------------------------------------------------ */
+    var LABELS_MODE = {
+      heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool',
+      auto:'Auto', dry:'Dry',  fan_only:'Fan', off:'Off'
+    };
+    var LABELS_FAN = {
+      auto:'Auto', low:'Low', medium:'Med', high:'High',
+      medium_high:'Med-Hi', quiet:'Quiet', 'on':'On', 'off':'Off'
+    };
+    var LABELS_SWING = {
+      'off':'Off', both:'Both', vertical:'Vertical',
+      horizontal:'Horizontal', upper:'Upper'
+    };
+    var ICONS_MODE = {
+      heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
+      auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
+      fan_only:'[mdi:fan]', off:'[mdi:power]'
+    };
+
     function applyState(state) {
       if (!state) return;
       var attrs = state.attributes || {};
-      var eu    = getEntityUnit(state);
+      var eu    = getEU(state);
 
-      var curRaw = parseFloat(attrs.current_temperature);
-      currentTempEl.textContent = isNaN(curRaw)
-        ? '--'
-        : fmtTemp(toDisplay(curRaw, eu));
+      /* Current temp */
+      var cur = parseFloat(attrs.current_temperature);
+      curNumEl.textContent = isNaN(cur) ? '--' : fmt(toDisplay(cur, eu));
 
-      currentMode = String(state.state || '').toLowerCase();
+      /* Mode */
+      curMode = String(state.state || '').toLowerCase();
+      var modeStr = LABELS_MODE[curMode] || curMode;
+      modeLabelEl.textContent  = modeStr;
+      modePill.line2.textContent = modeStr;
+      setContent(modePill.icon, ICONS_MODE[curMode] || '[mdi:thermostat]');
 
-      var availModes = attrs.hvac_modes || [];
-      updateModeUI(currentMode, availModes.length ? availModes : null);
+      /* Fan */
+      var fanVal = String(attrs.fan_mode || attrs.fan_speed || 'Auto').toLowerCase();
+      fanPill.line2.textContent = LABELS_FAN[fanVal] || fanVal;
 
-      var newDual = (currentMode === 'heat_cool' &&
+      /* Swing */
+      var swingVal = String(attrs.swing_mode || 'Off').toLowerCase();
+      swingPill.line2.textContent = LABELS_SWING[swingVal] || swingVal;
+
+      /* Dual / single */
+      var newDual = curMode === 'heat_cool' &&
                     attrs.target_temp_low  !== undefined &&
-                    attrs.target_temp_high !== undefined);
+                    attrs.target_temp_high !== undefined;
 
       if (newDual !== isDual) {
         isDual = newDual;
-        singleCtrl.row.style.display   = isDual ? 'none' : 'flex';
-        dualCtrlLow.row.style.display  = isDual ? 'flex' : 'none';
-        dualCtrlHigh.row.style.display = isDual ? 'flex' : 'none';
+        minusBtn.style.display  = plusBtn.style.display  = isDual ? 'none' : 'flex';
+        [minusBtnLo,plusBtnLo,minusBtnHi,plusBtnHi].forEach(function(b){
+          b.style.display = isDual ? 'flex' : 'none';
+        });
       }
 
       if (isDual) {
         var rawLo = parseFloat(attrs.target_temp_low);
         var rawHi = parseFloat(attrs.target_temp_high);
-        if (!isNaN(rawLo)) dualLow  = clampSetpoint(toDisplay(rawLo, eu));
-        if (!isNaN(rawHi)) dualHigh = clampSetpoint(toDisplay(rawHi, eu));
-        dualCtrlLow.valEl.textContent  = fmtTemp(dualLow);
-        dualCtrlHigh.valEl.textContent = fmtTemp(dualHigh);
+        if (!isNaN(rawLo)) dualLow  = clamp(toDisplay(rawLo, eu));
+        if (!isNaN(rawHi)) dualHigh = clamp(toDisplay(rawHi, eu));
       } else {
         var rawT = parseFloat(attrs.temperature);
-        if (!isNaN(rawT)) singleSetpoint = clampSetpoint(toDisplay(rawT, eu));
-        singleCtrl.valEl.textContent = fmtTemp(singleSetpoint);
+        if (!isNaN(rawT)) singleSP = clamp(toDisplay(rawT, eu));
       }
 
-      redrawArc();
+      redraw();
     }
 
-    /* --------------------------------------------------
+    /* ------------------------------------------------------------------
        13. Entity subscription
-    -------------------------------------------------- */
+    ------------------------------------------------------------------ */
     if (w.entity) {
       registerEntityCallback(w.entity, function(state) {
         latestState = state;
@@ -701,8 +725,5 @@
     }
 
     /* Initial paint */
-    singleCtrl.valEl.textContent      = fmtTemp(singleSetpoint);
-    dualCtrlLow.valEl.textContent     = fmtTemp(dualLow);
-    dualCtrlHigh.valEl.textContent    = fmtTemp(dualHigh);
-    redrawArc();
+    redraw();
   }
