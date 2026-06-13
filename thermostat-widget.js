@@ -1,13 +1,18 @@
 /* ============================================================
-   HAven - Thermostat Widget  v11
+   HAven - Thermostat Widget  v12
 
-   Key fix vs v10:
-     - el.style.setProperty('background','none','important')
-       so the engine's own CSS class cannot override us
-     - Same !important treatment for box-shadow and
-       backdrop-filter on the root element
-     - bgToken path still paints a real card when the user
-       explicitly sets background: <token>
+   Changes vs v11:
+     - Subtle frosted glass disk behind the arc (backdrop-filter
+       blur + faint white tint + top-edge highlight border +
+       soft drop shadow). Only the disk blurs; the root el and
+       all other containers remain fully transparent.
+     - SVG <filter> feGaussianBlur bloom on valueEl / value2El
+       so only the active arc stroke glows.
+     - Active mode: curNumEl + modeLabelEl + spLabelEl get a
+       matching CSS text-shadow glow in the mode colour.
+     - Off / fan_only: glow filter removed, text-shadow none,
+       everything stays muted white — no glow.
+     - bgToken card path untouched.
 
    RULE: Never write el.style.left/top/width/height - engine owns those.
    ============================================================ */
@@ -37,11 +42,9 @@
        2.  Helpers
     ------------------------------------------------------------------ */
     function rc(tok) { return resolveColor(tok); }
-    function rcEl()    { return 'rgba(255,255,255,0.10)'; }
-    function rcTrack() { return 'rgba(255,255,255,0.18)'; }
     function rcMuted() {
       var v = rc(lblToken);
-      return (v && v !== 'undefined' && v !== 'null') ? v : 'rgba(255,255,255,0.70)';
+      return (v && v !== 'undefined' && v !== 'null') ? v : 'rgba(255,255,255,0.65)';
     }
     function rcText() {
       var v = rc('text');
@@ -114,10 +117,14 @@
     var cy = arcZoneH * 0.48;
     var circleBottom = cy + r;
 
+    /* Glass disk dimensions — sits behind the arc, circular */
+    var diskR      = r + lineWidth + 10;   /* just outside the arc stroke  */
+    var diskSize   = diskR * 2;
+    var diskLeft   = cx - diskR;
+    var diskTop    = cy - diskR;
+
     /* ------------------------------------------------------------------
-       4.  Root element
-         Use setProperty with 'important' so the engine's own CSS class
-         cannot override background / box-shadow / backdrop-filter.
+       4.  Root element — fully transparent, engine-proof
     ------------------------------------------------------------------ */
     el.style.position      = 'absolute';
     el.style.display       = 'flex';
@@ -127,23 +134,22 @@
     el.style.overflow      = 'visible';
 
     if (bgToken) {
-      /* User explicitly wants a card background */
-      el.style.setProperty('background',       rc(bgToken),  'important');
-      el.style.setProperty('box-shadow',       'none',       'important');
-      el.style.setProperty('backdrop-filter',  'none',       'important');
+      el.style.setProperty('background',              rc(bgToken), 'important');
+      el.style.setProperty('box-shadow',              'none',      'important');
+      el.style.setProperty('backdrop-filter',         'none',      'important');
+      el.style.setProperty('-webkit-backdrop-filter', 'none',      'important');
       el.style.borderRadius = cardRadius + 'px';
       el.style.overflow     = 'hidden';
     } else {
-      /* Fully transparent / floating */
-      el.style.setProperty('background',       'none',       'important');
-      el.style.setProperty('box-shadow',       'none',       'important');
-      el.style.setProperty('backdrop-filter',  'none',       'important');
-      el.style.setProperty('-webkit-backdrop-filter', 'none','important');
+      el.style.setProperty('background',              'none',      'important');
+      el.style.setProperty('box-shadow',              'none',      'important');
+      el.style.setProperty('backdrop-filter',         'none',      'important');
+      el.style.setProperty('-webkit-backdrop-filter', 'none',      'important');
       el.style.borderRadius = '0';
     }
 
     /* ------------------------------------------------------------------
-       5.  Arc zone — transparent
+       5.  Arc zone — transparent container
     ------------------------------------------------------------------ */
     var arcZone = document.createElement('div');
     arcZone.style.cssText = [
@@ -155,22 +161,111 @@
     ].join(';');
     el.appendChild(arcZone);
 
-    /* SVG */
+    /* ------------------------------------------------------------------
+       5a. Glass disk — subtle frosted circle behind the arc
+           Only this element blurs; nothing else does.
+    ------------------------------------------------------------------ */
+    if (!bgToken) {
+      var glassDisk = document.createElement('div');
+      glassDisk.style.cssText = [
+        'position:absolute',
+        'left:'            + Math.round(diskLeft) + 'px',
+        'top:'             + Math.round(diskTop)  + 'px',
+        'width:'           + Math.round(diskSize) + 'px',
+        'height:'          + Math.round(diskSize) + 'px',
+        'border-radius:50%',
+        /* very faint white tint — glass body */
+        'background:rgba(255,255,255,0.06)',
+        /* top-edge specular highlight */
+        'border:1px solid rgba(255,255,255,0.13)',
+        'border-top-color:rgba(255,255,255,0.28)',
+        /* frosted blur */
+        'backdrop-filter:blur(14px) saturate(1.4)',
+        '-webkit-backdrop-filter:blur(14px) saturate(1.4)',
+        /* lift shadow */
+        'box-shadow:0 8px 32px rgba(0,0,0,0.22),0 1px 0 rgba(255,255,255,0.08) inset',
+        'pointer-events:none',
+        'z-index:0'
+      ].join(';');
+      arcZone.appendChild(glassDisk);
+    }
+
+    /* ------------------------------------------------------------------
+       SVG (sits above the glass disk, z-index:1)
+    ------------------------------------------------------------------ */
     var ns  = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('width',  wW);
     svg.setAttribute('height', arcZoneH);
-    svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;background:transparent;';
+    svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;background:transparent;z-index:1;';
     arcZone.appendChild(svg);
 
+    /* Glow filter for active arc strokes */
+    var defs = document.createElementNS(ns, 'defs');
+    svg.appendChild(defs);
+
+    function makeGlowFilter(id, color, blur, opacity) {
+      var filt = document.createElementNS(ns, 'filter');
+      filt.setAttribute('id', id);
+      filt.setAttribute('x', '-50%');
+      filt.setAttribute('y', '-50%');
+      filt.setAttribute('width', '200%');
+      filt.setAttribute('height', '200%');
+      filt.setAttribute('color-interpolation-filters', 'sRGB');
+
+      var flood = document.createElementNS(ns, 'feFlood');
+      flood.setAttribute('flood-color', color);
+      flood.setAttribute('flood-opacity', opacity);
+      flood.setAttribute('result', 'flood');
+
+      var comp = document.createElementNS(ns, 'feComposite');
+      comp.setAttribute('in', 'flood');
+      comp.setAttribute('in2', 'SourceGraphic');
+      comp.setAttribute('operator', 'in');
+      comp.setAttribute('result', 'coloredBlur');
+
+      var gblur = document.createElementNS(ns, 'feGaussianBlur');
+      gblur.setAttribute('in', 'coloredBlur');
+      gblur.setAttribute('stdDeviation', blur);
+      gblur.setAttribute('result', 'blurred');
+
+      var merge = document.createElementNS(ns, 'feMerge');
+      var n1 = document.createElementNS(ns, 'feMergeNode');
+      n1.setAttribute('in', 'blurred');
+      var n2 = document.createElementNS(ns, 'feMergeNode');
+      n2.setAttribute('in', 'SourceGraphic');
+      merge.appendChild(n1);
+      merge.appendChild(n2);
+
+      filt.appendChild(flood);
+      filt.appendChild(comp);
+      filt.appendChild(gblur);
+      filt.appendChild(merge);
+      defs.appendChild(filt);
+      return id;
+    }
+
+    /* pre-build filters for heat, cool, and a dim "off" no-op */
+    var filtHeat = makeGlowFilter('therm-glow-heat', rc(heatToken) || '#ff8c42', 6,  0.9);
+    var filtCool = makeGlowFilter('therm-glow-cool', rc(coolToken) || '#56cfff', 6,  0.9);
+    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff',                  2,  0.0);
+
+    function glowFilterForMode(m) {
+      if (m === 'off' || m === 'fan_only') return filtOff;
+      if (m === 'heat' || m === 'dry')     return filtHeat;
+      return filtCool;   /* cool, auto, heat_cool */
+    }
+
+    /* Track arc — always muted, no glow */
     var trackEl = document.createElementNS(ns, 'path');
     trackEl.setAttribute('fill','none');
-    trackEl.setAttribute('stroke', rcTrack());
+    trackEl.setAttribute('stroke', 'rgba(255,255,255,0.15)');
     trackEl.setAttribute('stroke-width', lineWidth);
     trackEl.setAttribute('stroke-linecap','round');
     trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
     svg.appendChild(trackEl);
 
+    /* Value arc — glows when active */
     var valueEl = document.createElementNS(ns, 'path');
     valueEl.setAttribute('fill','none');
     valueEl.setAttribute('stroke-width', lineWidth);
@@ -178,6 +273,7 @@
     valueEl.setAttribute('stroke', rc(arcToken));
     svg.appendChild(valueEl);
 
+    /* Secondary arc (heat_cool dual) — glows cool colour */
     var value2El = document.createElementNS(ns, 'path');
     value2El.setAttribute('fill','none');
     value2El.setAttribute('stroke-width', Math.max(4, Math.round(lineWidth * 0.6)));
@@ -187,7 +283,7 @@
     svg.appendChild(value2El);
 
     /* ------------------------------------------------------------------
-       6.  Centre label overlay — transparent
+       6.  Centre label overlay — z-index:2, above glass + SVG
     ------------------------------------------------------------------ */
     var centreDiv = document.createElement('div');
     centreDiv.style.cssText = [
@@ -197,6 +293,7 @@
       'align-items:center','justify-content:center',
       'text-align:center','pointer-events:none',
       'background:transparent',
+      'z-index:2',
       'padding-bottom:' + Math.round(arcZoneH * 0.10) + 'px'
     ].join(';');
     arcZone.appendChild(centreDiv);
@@ -210,7 +307,8 @@
       'line-height:1.2',
       'letter-spacing:0.04em',
       'text-transform:capitalize',
-      'background:transparent'
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
     modeLabelEl.textContent = 'Off';
     centreDiv.appendChild(modeLabelEl);
@@ -229,7 +327,8 @@
       'font-weight:700',
       'letter-spacing:-0.02em',
       'color:'             + rcText(),
-      'background:transparent'
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
     curNumEl.textContent = '--';
     curWrap.appendChild(curNumEl);
@@ -255,13 +354,14 @@
       'color:'      + rcMuted(),
       'margin-top:3px',
       'line-height:1',
-      'background:transparent'
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
     spLabelEl.textContent = 'Set --';
     centreDiv.appendChild(spLabelEl);
 
     /* ------------------------------------------------------------------
-       7.  +/- buttons
+       7.  +/- buttons — z-index:2
     ------------------------------------------------------------------ */
     var btnSize    = Math.max(22, Math.round(wW * 0.13));
     var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
@@ -280,9 +380,12 @@
         'width:'         + btnSize + 'px',
         'height:'        + btnSize + 'px',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
-        'border:1px solid rgba(255,255,255,0.22)',
-        'background:'    + rcEl(),
-        'color:'         + rcText(),
+        'border:1px solid rgba(255,255,255,0.20)',
+        'border-top-color:rgba(255,255,255,0.35)',
+        'background:rgba(255,255,255,0.08)',
+        'backdrop-filter:blur(8px)',
+        '-webkit-backdrop-filter:blur(8px)',
+        'color:rgba(255,255,255,0.90)',
         'font-size:'     + btnFS + 'px',
         'font-family:inherit',
         'cursor:pointer',
@@ -292,7 +395,9 @@
         'padding:0',
         'line-height:1',
         'top:'           + btnY + 'px',
-        'pointer-events:auto'
+        'pointer-events:auto',
+        'z-index:2',
+        'transition:opacity 0.15s ease'
       ].join(';');
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -331,7 +436,7 @@
     arcZone.appendChild(plusBtnHi);
 
     /* ------------------------------------------------------------------
-       8.  Pills zone — transparent background
+       8.  Pills zone — glass pills
     ------------------------------------------------------------------ */
     var pillsZone = document.createElement('div');
     pillsZone.style.cssText = [
@@ -357,10 +462,14 @@
       pill.style.cssText = [
         'flex:1 1 0',
         'min-width:0',
-        'border:1px solid rgba(255,255,255,0.14)',
+        'border:1px solid rgba(255,255,255,0.12)',
+        'border-top-color:rgba(255,255,255,0.24)',
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
-        'background:'    + rcEl(),
-        'color:'         + rcText(),
+        'background:rgba(255,255,255,0.07)',
+        'backdrop-filter:blur(10px)',
+        '-webkit-backdrop-filter:blur(10px)',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.18)',
+        'color:rgba(255,255,255,0.90)',
         'display:flex',
         'flex-direction:row',
         'align-items:center',
@@ -370,7 +479,8 @@
         'box-sizing:border-box',
         'cursor:pointer',
         'font-family:inherit',
-        'overflow:hidden'
+        'overflow:hidden',
+        'transition:opacity 0.15s ease'
       ].join(';');
 
       var iconSpan = document.createElement('span');
@@ -378,7 +488,7 @@
       iconSpan.style.cssText = [
         'font-size:' + pillIconFS + 'px',
         'flex:0 0 auto',
-        'color:'     + rcMuted(),
+        'color:rgba(255,255,255,0.55)',
         'background:transparent'
       ].join(';');
       pill.appendChild(iconSpan);
@@ -394,7 +504,7 @@
       line1.style.cssText = [
         'font-size:'    + pillFS1 + 'px',
         'font-weight:400',
-        'color:'        + rcMuted(),
+        'color:rgba(255,255,255,0.45)',
         'line-height:1.1',
         'white-space:nowrap',
         'overflow:hidden',
@@ -408,7 +518,7 @@
       line2.style.cssText = [
         'font-size:'    + pillFS2 + 'px',
         'font-weight:600',
-        'color:'        + rcText(),
+        'color:rgba(255,255,255,0.88)',
         'line-height:1.1',
         'white-space:nowrap',
         'overflow:hidden',
@@ -453,22 +563,23 @@
     function makeListPicker(options, onSelect) {
       closeActiveOverlay();
       var overlay = document.createElement('div');
-      var overlayBg = bgToken
-        ? rc(bgToken)
-        : (rc('surface') || rc('surface_2') || 'rgba(24,24,28,0.97)');
       overlay.style.cssText = [
         'position:absolute',
         'bottom:' + (pillH + pillGap) + 'px',
         'left:'   + pillGap + 'px',
         'right:'  + pillGap + 'px',
-        'background:'    + overlayBg,
+        'background:rgba(20,20,24,0.82)',
+        'backdrop-filter:blur(20px)',
+        '-webkit-backdrop-filter:blur(20px)',
+        'border:1px solid rgba(255,255,255,0.12)',
+        'border-top-color:rgba(255,255,255,0.22)',
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
         'padding:6px',
         'display:flex',
         'flex-wrap:wrap',
         'gap:4px',
         'justify-content:center',
-        'box-shadow:0 4px 20px rgba(0,0,0,0.5)',
+        'box-shadow:0 8px 32px rgba(0,0,0,0.45)',
         'z-index:10'
       ].join(';');
 
@@ -483,8 +594,8 @@
           'border-radius:' + Math.round(chipH / 2) + 'px',
           'height:'        + chipH + 'px',
           'padding:0 8px',
-          'background:rgba(255,255,255,0.10)',
-          'color:'         + rcText(),
+          'background:rgba(255,255,255,0.08)',
+          'color:rgba(255,255,255,0.88)',
           'font-size:'     + chipFS + 'px',
           'font-family:inherit',
           'cursor:pointer',
@@ -587,27 +698,61 @@
       return rc(arcToken);
     }
 
+    /* Build a text-shadow glow string for active states */
+    function glowShadow(color) {
+      return [
+        '0 0 8px '  + color,
+        '0 0 18px ' + color,
+        '0 0 32px ' + color
+      ].join(',');
+    }
+
     function spToPct(sp) {
       var p = (sp - cfgMin) / (cfgMax - cfgMin);
       return p < 0 ? 0 : p > 1 ? 1 : p;
     }
+
     function redraw() {
-      var col = modeColor(curMode);
-      curNumEl.style.color = col;
+      var col       = modeColor(curMode);
+      var isActive  = curMode !== 'off' && curMode !== 'fan_only';
+      var glowFilt  = 'url(#' + glowFilterForMode(curMode) + ')';
+      var noFilt    = 'none';
+
+      /* Arc colour + glow filter */
+      valueEl.setAttribute('stroke', col);
+      valueEl.setAttribute('filter', isActive ? glowFilt : noFilt);
+
+      /* Temperature number glow */
+      curNumEl.style.color      = col;
+      curNumEl.style.textShadow = isActive ? glowShadow(col) : 'none';
+
+      /* Mode label glow — subtler */
+      modeLabelEl.style.color      = isActive ? col : rcMuted();
+      modeLabelEl.style.textShadow = isActive ? glowShadow(col) : 'none';
+
+      /* Setpoint label glow — subtler still */
+      spLabelEl.style.color      = isActive ? 'rgba(255,255,255,0.75)' : rcMuted();
+      spLabelEl.style.textShadow = isActive
+        ? '0 0 6px ' + col + ',0 0 14px ' + col
+        : 'none';
+
       if (isDual) {
         var pLo = spToPct(dualLow), pHi = spToPct(dualHigh);
         var aLo = ARC_START + pLo * ARC_SWEEP;
         var aHi = ARC_START + pHi * ARC_SWEEP;
-        valueEl.setAttribute('stroke', modeColor('heat'));
+        var heatCol = modeColor('heat');
+        var coolCol = modeColor('cool');
+        valueEl.setAttribute('stroke', heatCol);
+        valueEl.setAttribute('filter', 'url(#' + filtHeat + ')');
         valueEl.setAttribute('d', pLo <= 0 ? '' : arcPath(cx, cy, r, ARC_START, aLo));
-        value2El.setAttribute('stroke', modeColor('cool'));
+        value2El.setAttribute('stroke', coolCol);
+        value2El.setAttribute('filter', 'url(#' + filtCool + ')');
         value2El.style.display = '';
         value2El.setAttribute('d', pHi <= pLo ? '' : arcPath(cx, cy, r, aLo, aHi));
         spLabelEl.textContent = fmt(dualLow) + '\u00b0\u2013' + fmt(dualHigh) + '\u00b0' + displayUnit;
       } else {
         var pct = spToPct(singleSP);
         var ang = ARC_START + pct * ARC_SWEEP;
-        valueEl.setAttribute('stroke', col);
         valueEl.setAttribute('d',
           pct <= 0 ? '' :
           pct >= 1 ? arcPath(cx, cy, r, ARC_START, ARC_END - 0.5) :
