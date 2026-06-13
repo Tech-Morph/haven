@@ -2,16 +2,17 @@
    HAven - Thermostat Widget  (renderThermostat)
    Paste this function body into app.js at the thermostat case.
 
-   Layout (top → bottom, flex column, no overlap):
+   IMPORTANT: HAven's layout engine sets el.style.left/top/width/height
+   BEFORE calling this function (app.js lines ~965-968). Never overwrite
+   those four properties here or the widget loses its x/y position.
+
+   Layout (flex column, three non-overlapping zones):
      ┌─────────────────────────────────┐
-     │  MODE ZONE  (chips / dropdown)  │  fixed height, hidden overflow
+     │  MODE ZONE  (chips / dropdown)  │  fixed height
      ├─────────────────────────────────┤
-     │                                 │
-     │     ARC ZONE  (SVG gauge)       │  flex-grow:1, min-height 0
-     │   ┌ current temp (centre) ┐     │
-     │   │ setpoint label        │     │  absolutely centred inside zone
-     │   └───────────────────────┘     │
-     │                                 │
+     │     ARC ZONE  (SVG gauge)       │  flex-grow:1
+     │   centre: current temp          │
+     │           setpoint label        │
      ├─────────────────────────────────┤
      │  CONTROLS ZONE  (− val +)       │  fixed height
      └─────────────────────────────────┘
@@ -36,7 +37,7 @@
     el.className += ' widget-thermostat';
 
     /* --------------------------------------------------
-       1. Config resolution
+       1. Config
     -------------------------------------------------- */
     var displayUnit = String(w.unit || 'F').toUpperCase();
     if (displayUnit !== 'C') displayUnit = 'F';
@@ -46,10 +47,10 @@
     var cfgMin  = w.min  !== undefined ? parseFloat(w.min)  : defMin;
     var cfgMax  = w.max  !== undefined ? parseFloat(w.max)  : defMax;
     var cfgStep = w.step !== undefined ? parseFloat(w.step) : 1;
-    if (isNaN(cfgMin))               cfgMin  = defMin;
-    if (isNaN(cfgMax))               cfgMax  = defMax;
+    if (isNaN(cfgMin))                  cfgMin  = defMin;
+    if (isNaN(cfgMax))                  cfgMax  = defMax;
     if (isNaN(cfgStep) || cfgStep <= 0) cfgStep = 1;
-    if (cfgMax <= cfgMin)            cfgMax  = cfgMin + cfgStep;
+    if (cfgMax <= cfgMin)               cfgMax  = cfgMin + cfgStep;
 
     var modeLayout = String(w.mode_layout || 'chips').toLowerCase();
     if (modeLayout !== 'dropdown' && modeLayout !== 'none') modeLayout = 'chips';
@@ -71,9 +72,11 @@
 
     function getEntityUnit(state) {
       if (!state || !state.attributes) return displayUnit;
-      var raw = state.attributes.temperature_unit ||
-                state.attributes.unit_of_measurement || displayUnit;
-      raw = String(raw).replace('°', '').toUpperCase();
+      var raw = String(
+        state.attributes.temperature_unit ||
+        state.attributes.unit_of_measurement ||
+        displayUnit
+      ).replace('\u00b0', '').toUpperCase();
       return raw === 'C' ? 'C' : 'F';
     }
 
@@ -101,80 +104,82 @@
       return Math.round(val * 10) / 10;
     }
 
-    /* Safe resolveColor wrapper: HA theme tokens use underscore
-       but some callers pass camelCase or the literal 'surface2'. */
-    function rc(token) {
-      return resolveColor(token);
+    /* resolveColor shorthand */
+    function rc(token) { return resolveColor(token); }
+
+    /* Fallback surface token: try surface_2 then surface2 */
+    function rcSurface2() {
+      return rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.10)';
     }
 
     var MODE_ICONS = {
-      heat:      '[mdi:fire]',
-      cool:      '[mdi:snowflake]',
-      heat_cool: '[mdi:autorenew]',
-      auto:      '[mdi:thermostat-auto]',
-      dry:       '[mdi:water-percent]',
-      fan_only:  '[mdi:fan]',
-      off:       '[mdi:power]'
+      heat: '[mdi:fire]', cool: '[mdi:snowflake]', heat_cool: '[mdi:autorenew]',
+      auto: '[mdi:thermostat-auto]', dry: '[mdi:water-percent]',
+      fan_only: '[mdi:fan]', off: '[mdi:power]'
     };
     var MODE_LABELS = {
       heat: 'Heat', cool: 'Cool', heat_cool: 'Heat/Cool',
-      auto: 'Auto', dry: 'Dry',   fan_only:  'Fan', off: 'Off'
+      auto: 'Auto', dry: 'Dry',  fan_only: 'Fan', off: 'Off'
     };
 
     function getModeColor(mode) {
       if (mode === 'heat' || mode === 'heat_cool') return rc(heatColor);
-      if (mode === 'cool')     return rc(coolColor);
-      if (mode === 'auto')     return rc(arcColor);
-      if (mode === 'dry')      return rc('warning');
+      if (mode === 'cool')   return rc(coolColor);
+      if (mode === 'auto')   return rc(arcColor);
+      if (mode === 'dry')    return rc('warning');
       return rc('text_muted');
     }
 
     /* --------------------------------------------------
        3. Zone height budget
-       We allocate fixed px for top and bottom zones,
-       the arc zone gets the remainder.
+       Use w.w / w.h (the config dimensions the engine used).
+       DO NOT write these back to el.style - engine already did that.
     -------------------------------------------------- */
-    var wH = w.h;
     var wW = w.w;
+    var wH = w.h;
 
-    var modeZoneH     = modeLayout === 'none' ? 0 : Math.round(wH * 0.18);
-    var controlZoneH  = Math.round(wH * 0.22);
-    var arcZoneH      = wH - modeZoneH - controlZoneH;  // remaining height
+    var modeZoneH    = modeLayout === 'none' ? 0 : Math.round(wH * 0.18);
+    var ctrlZoneH    = Math.round(wH * 0.22);
+    var arcZoneH     = wH - modeZoneH - ctrlZoneH;
     if (arcZoneH < 40) arcZoneH = 40;
 
     /* --------------------------------------------------
-       4. Root element: position:relative, flex column
+       4. Root element styling
+       ONLY set: position, display, flex-direction, background,
+       border-radius, overflow, box-sizing.
+       NEVER set: left, top, width, height  (engine owns those).
     -------------------------------------------------- */
-    el.style.cssText = [
-      'position:relative',
-      'overflow:hidden',
-      'display:flex',
-      'flex-direction:column',
-      'width:'         + wW + 'px',
-      'height:'        + wH + 'px',
-      'background:'    + rc(bgColor),
-      'border-radius:' + cardRadius + 'px',
-      'box-sizing:border-box'
-    ].join(';');
+    el.style.position     = 'relative';
+    el.style.overflow     = 'hidden';
+    el.style.display      = 'flex';
+    el.style.flexDirection = 'column';
+    el.style.boxSizing    = 'border-box';
+    el.style.background   = rc(bgColor);
+    el.style.borderRadius = cardRadius + 'px';
+    /* Note: el already has position:absolute + left/top/width/height from
+       the engine. Adding position:relative here overrides that and breaks
+       layout. Use position:absolute and rely on flex children for internal
+       layout. Reset: */
+    el.style.position = 'absolute';  /* keep engine's absolute positioning */
 
     /* --------------------------------------------------
-       5. MODE ZONE  (top band)
+       5. MODE ZONE
     -------------------------------------------------- */
     var modeZone = document.createElement('div');
     modeZone.style.cssText = [
       'flex:0 0 ' + modeZoneH + 'px',
-      'width:100%',
       'display:' + (modeLayout === 'none' ? 'none' : 'flex'),
       'align-items:center',
       'justify-content:center',
       'overflow:hidden',
+      'width:100%',
       'padding:0 6px',
       'box-sizing:border-box'
     ].join(';');
     el.appendChild(modeZone);
 
     /* --------------------------------------------------
-       6. ARC ZONE  (middle, flex-grow)
+       6. ARC ZONE
     -------------------------------------------------- */
     var arcZone = document.createElement('div');
     arcZone.style.cssText = [
@@ -186,20 +191,18 @@
     ].join(';');
     el.appendChild(arcZone);
 
-    /* Arc geometry: fit circle into arcZone dimensions */
-    var arcW  = wW;
-    var arcH  = arcZoneH;
-    var size  = Math.min(arcW, arcH);
-    var cx    = arcW / 2;
-    var cy    = arcH / 2;
-    /* Push centre slightly upward so the open 90° gap lands at the bottom */
-    var r     = (size / 2) - (lineWidth / 2) - 4;
+    /* Geometry: arc fitted inside the arc zone */
+    var arcW = wW;
+    var arcH = arcZoneH;
+    var size = Math.min(arcW, arcH);
+    var cx   = arcW / 2;
+    var cy   = arcH / 2;
+    var r    = (size / 2) - (lineWidth / 2) - 4;
     if (r < 8) r = 8;
 
     var START_ANG = 135;
     var END_ANG   = 405;
 
-    /* SVG */
     var ns  = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('width',  arcW);
@@ -207,32 +210,32 @@
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;';
     arcZone.appendChild(svg);
 
-    /* Track (full 270°) */
+    /* Track ring */
     var trackPath = document.createElementNS(ns, 'path');
-    trackPath.setAttribute('fill',         'none');
-    trackPath.setAttribute('stroke',        rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.1)');
-    trackPath.setAttribute('stroke-width',  lineWidth);
-    trackPath.setAttribute('stroke-linecap','round');
+    trackPath.setAttribute('fill',          'none');
+    trackPath.setAttribute('stroke',         rcSurface2());
+    trackPath.setAttribute('stroke-width',   lineWidth);
+    trackPath.setAttribute('stroke-linecap', 'round');
     trackPath.setAttribute('d', describeArc(cx, cy, r, START_ANG, END_ANG));
     svg.appendChild(trackPath);
 
-    /* Value arc (primary / single / heat-low) */
+    /* Value arc - primary / single / heat-low */
     var valuePath = document.createElementNS(ns, 'path');
-    valuePath.setAttribute('fill',         'none');
-    valuePath.setAttribute('stroke-width',  lineWidth);
-    valuePath.setAttribute('stroke-linecap','round');
+    valuePath.setAttribute('fill',          'none');
+    valuePath.setAttribute('stroke-width',   lineWidth);
+    valuePath.setAttribute('stroke-linecap', 'round');
     svg.appendChild(valuePath);
 
-    /* Value arc 2 (heat-high in dual mode, dashed) */
+    /* Value arc 2 - heat-high in dual mode (dashed, thinner) */
     var valuePath2 = document.createElementNS(ns, 'path');
-    valuePath2.setAttribute('fill',          'none');
-    valuePath2.setAttribute('stroke-width',   Math.max(4, Math.round(lineWidth * 0.6)));
-    valuePath2.setAttribute('stroke-linecap', 'round');
+    valuePath2.setAttribute('fill',           'none');
+    valuePath2.setAttribute('stroke-width',    Math.max(4, Math.round(lineWidth * 0.6)));
+    valuePath2.setAttribute('stroke-linecap',  'round');
     valuePath2.setAttribute('stroke-dasharray','5 7');
     valuePath2.style.display = 'none';
     svg.appendChild(valuePath2);
 
-    /* Centre label: absolutely centred inside arcZone */
+    /* Centre label - absolutely centred inside arcZone */
     var labelDiv = document.createElement('div');
     labelDiv.style.cssText = [
       'position:absolute',
@@ -243,17 +246,17 @@
       'flex-direction:column',
       'align-items:center',
       'justify-content:center',
-      'pointer-events:none',
-      'text-align:center'
+      'text-align:center',
+      'pointer-events:none'
     ].join(';');
     arcZone.appendChild(labelDiv);
 
-    var fs_curTemp  = Math.max(14, Math.round(size * 0.20));
-    var fs_setpoint = Math.max(10, Math.round(size * 0.11));
+    var fsCur = Math.max(14, Math.round(size * 0.20));
+    var fsSP  = Math.max(10, Math.round(size * 0.11));
 
     var currentTempEl = document.createElement('div');
     currentTempEl.style.cssText = [
-      'font-size:'   + fs_curTemp + 'px',
+      'font-size:'   + fsCur + 'px',
       'font-weight:700',
       'line-height:1',
       'color:'       + rc('text')
@@ -263,7 +266,7 @@
 
     var setpointLabelEl = document.createElement('div');
     setpointLabelEl.style.cssText = [
-      'font-size:'   + fs_setpoint + 'px',
+      'font-size:'   + fsSP + 'px',
       'font-weight:500',
       'line-height:1',
       'margin-top:4px',
@@ -273,26 +276,26 @@
     labelDiv.appendChild(setpointLabelEl);
 
     /* --------------------------------------------------
-       7. CONTROLS ZONE  (bottom band)
+       7. CONTROLS ZONE
     -------------------------------------------------- */
     var ctrlZone = document.createElement('div');
     ctrlZone.style.cssText = [
-      'flex:0 0 ' + controlZoneH + 'px',
-      'width:100%',
+      'flex:0 0 ' + ctrlZoneH + 'px',
       'display:flex',
       'flex-direction:column',
       'align-items:center',
       'justify-content:center',
       'gap:4px',
+      'width:100%',
       'box-sizing:border-box',
       'padding:0 6px 4px 6px'
     ].join(';');
     el.appendChild(ctrlZone);
 
-    var btnSize    = Math.max(22, Math.round(controlZoneH * 0.44));
-    var btnFS      = Math.round(btnSize * 0.56);
-    var valFS      = Math.max(10, Math.round(controlZoneH * 0.30));
-    var rowLblFS   = Math.max(9,  Math.round(controlZoneH * 0.22));
+    var btnSize  = Math.max(22, Math.round(ctrlZoneH * 0.44));
+    var btnFS    = Math.round(btnSize * 0.56);
+    var valFS    = Math.max(10, Math.round(ctrlZoneH * 0.30));
+    var rowLblFS = Math.max(9,  Math.round(ctrlZoneH * 0.22));
 
     function makePMBtn(label, handler) {
       var btn = document.createElement('button');
@@ -304,7 +307,7 @@
         'height:'        + btnSize + 'px',
         'border:none',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
-        'background:'    + rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.12)',
+        'background:'    + rcSurface2(),
         'color:'         + rc('text'),
         'font-size:'     + btnFS + 'px',
         'font-family:inherit',
@@ -341,11 +344,10 @@
         'width:100%'
       ].join(';');
 
-      /* Optional row label (Lo / Hi for dual mode) */
       var lbl = document.createElement('span');
       lbl.style.cssText = [
-        'font-size:'  + rowLblFS + 'px',
-        'color:'      + rc(lblColor),
+        'font-size:' + rowLblFS + 'px',
+        'color:'     + rc(lblColor),
         'min-width:16px',
         'text-align:left',
         'flex-shrink:0'
@@ -376,7 +378,7 @@
     }
 
     /* Single setpoint row */
-    var singleSetpoint  = Math.round((cfgMin + cfgMax) / 2);
+    var singleSetpoint = Math.round((cfgMin + cfgMax) / 2);
     var singleCtrl = makeCtrlRow('',
       function() { adjustSetpoint(-cfgStep); },
       function() { adjustSetpoint(cfgStep);  });
@@ -397,7 +399,7 @@
     dualCtrlHigh.row.style.display = 'none';
 
     /* --------------------------------------------------
-       8. Mode selector build helpers
+       8. Mode selector
     -------------------------------------------------- */
     var modeDropdown = null;
     var modeChipsMap = {};
@@ -405,8 +407,8 @@
     var currentMode  = '';
     var isDual       = false;
 
-    var chipH   = Math.max(18, Math.round(modeZoneH * 0.62));
-    var chipFS  = Math.max(9,  Math.round(chipH * 0.56));
+    var chipH  = Math.max(18, Math.round(modeZoneH * 0.62));
+    var chipFS = Math.max(9,  Math.round(chipH * 0.56));
 
     function buildChips(modes) {
       modeZone.innerHTML = '';
@@ -478,13 +480,13 @@
       sel.style.cssText = [
         'border:none',
         'border-radius:6px',
-        'background:'  + rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.12)',
-        'color:'       + rc('text'),
-        'font-size:'   + Math.max(10, Math.round(modeZoneH * 0.40)) + 'px',
+        'background:' + rcSurface2(),
+        'color:'      + rc('text'),
+        'font-size:'  + Math.max(10, Math.round(modeZoneH * 0.40)) + 'px',
         'padding:2px 8px',
         'font-family:inherit',
         'cursor:pointer',
-        'max-width:' + (wW - 16) + 'px'
+        'max-width:'  + (wW - 16) + 'px'
       ].join(';');
 
       modes.forEach(function(mode) {
@@ -507,7 +509,7 @@
         if (!modeChipsMap.hasOwnProperty(mk)) continue;
         var chip = modeChipsMap[mk];
         var active = (mk === activeMode);
-        chip.style.background = active ? getModeColor(mk) : rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.10)';
+        chip.style.background = active ? getModeColor(mk) : rcSurface2();
         chip.style.color      = active ? '#ffffff' : rc('text');
       }
     }
@@ -521,12 +523,15 @@
         return;
       }
 
-      /* chips */
-      var needRebuild = !currentModes.length ||
-        (modes && modes.length !== currentModes.length);
+      /* chips - rebuild if mode list changed */
+      var needRebuild = !currentModes.length;
       if (!needRebuild && modes) {
-        for (var i = 0; i < modes.length; i++) {
-          if (modes[i] !== currentModes[i]) { needRebuild = true; break; }
+        if (modes.length !== currentModes.length) {
+          needRebuild = true;
+        } else {
+          for (var i = 0; i < modes.length; i++) {
+            if (modes[i] !== currentModes[i]) { needRebuild = true; break; }
+          }
         }
       }
       if (needRebuild && modes && modes.length) {
@@ -537,7 +542,7 @@
     }
 
     /* --------------------------------------------------
-       9. Arc rendering
+       9. Arc drawing
     -------------------------------------------------- */
     function spToPct(sp) {
       var p = (sp - cfgMin) / (cfgMax - cfgMin);
@@ -556,7 +561,9 @@
 
         valuePath.setAttribute('stroke', getModeColor('heat'));
         valuePath.setAttribute('d',
-          pLo <= 0 ? '' : describeArc(cx, cy, r, START_ANG, Math.max(START_ANG + 0.5, aLo)));
+          pLo <= 0
+            ? ''
+            : describeArc(cx, cy, r, START_ANG, Math.max(START_ANG + 0.5, aLo)));
 
         valuePath2.setAttribute('stroke', getModeColor('cool'));
         valuePath2.style.display = '';
@@ -570,9 +577,9 @@
 
         valuePath.setAttribute('stroke', color);
         valuePath.setAttribute('d',
-          pct <= 0   ? '' :
-          pct >= 1   ? describeArc(cx, cy, r, START_ANG, END_ANG - 0.5) :
-                       describeArc(cx, cy, r, START_ANG, ang));
+          pct <= 0 ? '' :
+          pct >= 1 ? describeArc(cx, cy, r, START_ANG, END_ANG - 0.5) :
+                     describeArc(cx, cy, r, START_ANG, ang));
 
         valuePath2.style.display = 'none';
         setpointLabelEl.textContent = 'Set ' + fmtTemp(singleSetpoint);
@@ -586,19 +593,14 @@
       if (!w.entity) return;
       var eu  = getEntityUnit(latestState);
       var val = Math.round(toEntityUnit(singleSetpoint, eu) * 2) / 2;
-      handleAction({
-        type:    'service',
-        service: 'climate.set_temperature',
-        data:    { entity_id: w.entity, temperature: val }
-      });
+      handleAction({ type: 'service', service: 'climate.set_temperature',
+        data: { entity_id: w.entity, temperature: val } });
     }
 
     function sendDualTemp() {
       if (!w.entity) return;
-      var eu  = getEntityUnit(latestState);
-      handleAction({
-        type:    'service',
-        service: 'climate.set_temperature',
+      var eu = getEntityUnit(latestState);
+      handleAction({ type: 'service', service: 'climate.set_temperature',
         data: {
           entity_id:        w.entity,
           target_temp_low:  Math.round(toEntityUnit(dualLow,  eu) * 2) / 2,
@@ -609,11 +611,8 @@
 
     function sendMode(mode) {
       if (!w.entity) return;
-      handleAction({
-        type:    'service',
-        service: 'climate.set_hvac_mode',
-        data:    { entity_id: w.entity, hvac_mode: mode }
-      });
+      handleAction({ type: 'service', service: 'climate.set_hvac_mode',
+        data: { entity_id: w.entity, hvac_mode: mode } });
       currentMode = mode;
       styleChips(mode);
       redrawArc();
@@ -646,27 +645,23 @@
     }
 
     /* --------------------------------------------------
-       12. State update
+       12. State application
     -------------------------------------------------- */
     function applyState(state) {
       if (!state) return;
       var attrs = state.attributes || {};
       var eu    = getEntityUnit(state);
 
-      /* Current temperature */
       var curRaw = parseFloat(attrs.current_temperature);
       currentTempEl.textContent = isNaN(curRaw)
         ? '--'
         : fmtTemp(toDisplay(curRaw, eu));
 
-      /* HVAC mode */
       currentMode = String(state.state || '').toLowerCase();
 
-      /* Available modes → build/update mode UI */
       var availModes = attrs.hvac_modes || [];
       updateModeUI(currentMode, availModes.length ? availModes : null);
 
-      /* Dual vs single */
       var newDual = (currentMode === 'heat_cool' &&
                     attrs.target_temp_low  !== undefined &&
                     attrs.target_temp_high !== undefined);
@@ -705,9 +700,9 @@
       if (latestState) applyState(latestState);
     }
 
-    /* Initial paint with defaults */
-    singleCtrl.valEl.textContent = fmtTemp(singleSetpoint);
-    dualCtrlLow.valEl.textContent  = fmtTemp(dualLow);
-    dualCtrlHigh.valEl.textContent = fmtTemp(dualHigh);
+    /* Initial paint */
+    singleCtrl.valEl.textContent      = fmtTemp(singleSetpoint);
+    dualCtrlLow.valEl.textContent     = fmtTemp(dualLow);
+    dualCtrlHigh.valEl.textContent    = fmtTemp(dualHigh);
     redrawArc();
   }
