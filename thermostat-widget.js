@@ -1,18 +1,12 @@
 /* ============================================================
-   HAven - Thermostat Widget  v12
+   HAven - Thermostat Widget  v13
 
-   Changes vs v11:
-     - Subtle frosted glass disk behind the arc (backdrop-filter
-       blur + faint white tint + top-edge highlight border +
-       soft drop shadow). Only the disk blurs; the root el and
-       all other containers remain fully transparent.
-     - SVG <filter> feGaussianBlur bloom on valueEl / value2El
-       so only the active arc stroke glows.
-     - Active mode: curNumEl + modeLabelEl + spLabelEl get a
-       matching CSS text-shadow glow in the mode colour.
-     - Off / fan_only: glow filter removed, text-shadow none,
-       everything stays muted white — no glow.
-     - bgToken card path untouched.
+   Changes vs v12:
+     - cy: arcZoneH * 0.48 → 0.42  (arc sits higher)
+     - lineWidth default: 12 → 14, cap: 14 → 18  (thicker stroke)
+     - btnSpacing: wW * 0.12 → wW * 0.08  (buttons nudged inward)
+     - diskR recalculated from new lineWidth so glass disk still
+       clears the outer edge of the arc correctly.
 
    RULE: Never write el.style.left/top/width/height - engine owns those.
    ============================================================ */
@@ -30,7 +24,7 @@
     var cfgStep = isNaN(parseFloat(w.step)) ? 1 : Math.max(0.1, parseFloat(w.step));
     if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    var lineWidth  = Math.min(14, Math.max(4, parseFloat(w.line_width) || 12));
+    var lineWidth  = Math.min(18, Math.max(4, parseFloat(w.line_width) || 14));
     var bgToken    = w.background || null;
     var arcToken   = w.color       || 'primary';
     var heatToken  = w.heat_color  || 'warning';
@@ -114,14 +108,17 @@
     var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    var cy = arcZoneH * 0.48;
+    var cy = arcZoneH * 0.42;           /* v13: raised from 0.48 */
     var circleBottom = cy + r;
 
-    /* Glass disk dimensions — sits behind the arc, circular */
-    var diskR      = r + lineWidth + 10;   /* just outside the arc stroke  */
-    var diskSize   = diskR * 2;
-    var diskLeft   = cx - diskR;
-    var diskTop    = cy - diskR;
+    /* Glass disk — sized to just clear the arc stroke */
+    var diskR    = r + lineWidth + 10;
+    var diskSize = diskR * 2;
+    var diskLeft = cx - diskR;
+    var diskTop  = cy - diskR;
+
+    /* Button spacing — inward from v12's 0.12 */
+    var btnSpacing = Math.round(wW * 0.08);
 
     /* ------------------------------------------------------------------
        4.  Root element — fully transparent, engine-proof
@@ -149,7 +146,7 @@
     }
 
     /* ------------------------------------------------------------------
-       5.  Arc zone — transparent container
+       5.  Arc zone
     ------------------------------------------------------------------ */
     var arcZone = document.createElement('div');
     arcZone.style.cssText = [
@@ -162,27 +159,22 @@
     el.appendChild(arcZone);
 
     /* ------------------------------------------------------------------
-       5a. Glass disk — subtle frosted circle behind the arc
-           Only this element blurs; nothing else does.
+       5a. Glass disk
     ------------------------------------------------------------------ */
     if (!bgToken) {
       var glassDisk = document.createElement('div');
       glassDisk.style.cssText = [
         'position:absolute',
-        'left:'            + Math.round(diskLeft) + 'px',
-        'top:'             + Math.round(diskTop)  + 'px',
-        'width:'           + Math.round(diskSize) + 'px',
-        'height:'          + Math.round(diskSize) + 'px',
+        'left:'   + Math.round(diskLeft) + 'px',
+        'top:'    + Math.round(diskTop)  + 'px',
+        'width:'  + Math.round(diskSize) + 'px',
+        'height:' + Math.round(diskSize) + 'px',
         'border-radius:50%',
-        /* very faint white tint — glass body */
         'background:rgba(255,255,255,0.06)',
-        /* top-edge specular highlight */
         'border:1px solid rgba(255,255,255,0.13)',
         'border-top-color:rgba(255,255,255,0.28)',
-        /* frosted blur */
         'backdrop-filter:blur(14px) saturate(1.4)',
         '-webkit-backdrop-filter:blur(14px) saturate(1.4)',
-        /* lift shadow */
         'box-shadow:0 8px 32px rgba(0,0,0,0.22),0 1px 0 rgba(255,255,255,0.08) inset',
         'pointer-events:none',
         'z-index:0'
@@ -191,7 +183,7 @@
     }
 
     /* ------------------------------------------------------------------
-       SVG (sits above the glass disk, z-index:1)
+       SVG  z-index:1
     ------------------------------------------------------------------ */
     var ns  = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
@@ -200,7 +192,6 @@
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;background:transparent;z-index:1;';
     arcZone.appendChild(svg);
 
-    /* Glow filter for active arc strokes */
     var defs = document.createElementNS(ns, 'defs');
     svg.appendChild(defs);
 
@@ -245,18 +236,17 @@
       return id;
     }
 
-    /* pre-build filters for heat, cool, and a dim "off" no-op */
-    var filtHeat = makeGlowFilter('therm-glow-heat', rc(heatToken) || '#ff8c42', 6,  0.9);
-    var filtCool = makeGlowFilter('therm-glow-cool', rc(coolToken) || '#56cfff', 6,  0.9);
-    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff',                  2,  0.0);
+    var filtHeat = makeGlowFilter('therm-glow-heat', rc(heatToken) || '#ff8c42', 6, 0.9);
+    var filtCool = makeGlowFilter('therm-glow-cool', rc(coolToken) || '#56cfff', 6, 0.9);
+    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff',                  2, 0.0);
 
     function glowFilterForMode(m) {
       if (m === 'off' || m === 'fan_only') return filtOff;
       if (m === 'heat' || m === 'dry')     return filtHeat;
-      return filtCool;   /* cool, auto, heat_cool */
+      return filtCool;
     }
 
-    /* Track arc — always muted, no glow */
+    /* Track */
     var trackEl = document.createElementNS(ns, 'path');
     trackEl.setAttribute('fill','none');
     trackEl.setAttribute('stroke', 'rgba(255,255,255,0.15)');
@@ -265,7 +255,7 @@
     trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
     svg.appendChild(trackEl);
 
-    /* Value arc — glows when active */
+    /* Value arc */
     var valueEl = document.createElementNS(ns, 'path');
     valueEl.setAttribute('fill','none');
     valueEl.setAttribute('stroke-width', lineWidth);
@@ -273,7 +263,7 @@
     valueEl.setAttribute('stroke', rc(arcToken));
     svg.appendChild(valueEl);
 
-    /* Secondary arc (heat_cool dual) — glows cool colour */
+    /* Secondary arc (heat_cool dual) */
     var value2El = document.createElementNS(ns, 'path');
     value2El.setAttribute('fill','none');
     value2El.setAttribute('stroke-width', Math.max(4, Math.round(lineWidth * 0.6)));
@@ -283,7 +273,7 @@
     svg.appendChild(value2El);
 
     /* ------------------------------------------------------------------
-       6.  Centre label overlay — z-index:2, above glass + SVG
+       6.  Centre label overlay  z-index:2
     ------------------------------------------------------------------ */
     var centreDiv = document.createElement('div');
     centreDiv.style.cssText = [
@@ -361,12 +351,11 @@
     centreDiv.appendChild(spLabelEl);
 
     /* ------------------------------------------------------------------
-       7.  +/- buttons — z-index:2
+       7.  +/- buttons  z-index:2
     ------------------------------------------------------------------ */
-    var btnSize    = Math.max(22, Math.round(wW * 0.13));
-    var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
-    var btnSpacing = Math.round(wW * 0.12);
-    var btnNudge   = Math.round(arcZoneH * 0.05);
+    var btnSize  = Math.max(22, Math.round(wW * 0.13));
+    var btnFS    = Math.max(13, Math.round(btnSize * 0.50));
+    var btnNudge = Math.round(arcZoneH * 0.05);
     var btnY = Math.round(circleBottom - btnSize * 0.5) + btnNudge;
     if (btnY + btnSize > arcZoneH - 2) btnY = arcZoneH - btnSize - 2;
     if (btnY < 2) btnY = 2;
@@ -436,7 +425,7 @@
     arcZone.appendChild(plusBtnHi);
 
     /* ------------------------------------------------------------------
-       8.  Pills zone — glass pills
+       8.  Pills zone
     ------------------------------------------------------------------ */
     var pillsZone = document.createElement('div');
     pillsZone.style.cssText = [
@@ -629,7 +618,6 @@
       }, 0);
     }
 
-    /* mode / fan / swing pickers */
     var HVAC_ICONS  = { heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
                         auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
                         fan_only:'[mdi:fan]', off:'[mdi:power]' };
@@ -698,13 +686,8 @@
       return rc(arcToken);
     }
 
-    /* Build a text-shadow glow string for active states */
     function glowShadow(color) {
-      return [
-        '0 0 8px '  + color,
-        '0 0 18px ' + color,
-        '0 0 32px ' + color
-      ].join(',');
+      return '0 0 8px ' + color + ',0 0 18px ' + color + ',0 0 32px ' + color;
     }
 
     function spToPct(sp) {
@@ -713,28 +696,22 @@
     }
 
     function redraw() {
-      var col       = modeColor(curMode);
-      var isActive  = curMode !== 'off' && curMode !== 'fan_only';
-      var glowFilt  = 'url(#' + glowFilterForMode(curMode) + ')';
-      var noFilt    = 'none';
+      var col      = modeColor(curMode);
+      var isActive = curMode !== 'off' && curMode !== 'fan_only';
+      var glowFilt = 'url(#' + glowFilterForMode(curMode) + ')';
 
-      /* Arc colour + glow filter */
       valueEl.setAttribute('stroke', col);
-      valueEl.setAttribute('filter', isActive ? glowFilt : noFilt);
+      valueEl.setAttribute('filter', isActive ? glowFilt : 'none');
 
-      /* Temperature number glow */
       curNumEl.style.color      = col;
       curNumEl.style.textShadow = isActive ? glowShadow(col) : 'none';
 
-      /* Mode label glow — subtler */
       modeLabelEl.style.color      = isActive ? col : rcMuted();
       modeLabelEl.style.textShadow = isActive ? glowShadow(col) : 'none';
 
-      /* Setpoint label glow — subtler still */
       spLabelEl.style.color      = isActive ? 'rgba(255,255,255,0.75)' : rcMuted();
       spLabelEl.style.textShadow = isActive
-        ? '0 0 6px ' + col + ',0 0 14px ' + col
-        : 'none';
+        ? '0 0 6px ' + col + ',0 0 14px ' + col : 'none';
 
       if (isDual) {
         var pLo = spToPct(dualLow), pHi = spToPct(dualHigh);
@@ -763,8 +740,7 @@
     }
 
     function adjustSetpoint(delta) {
-      singleSP = clamp(singleSP + delta);
-      redraw(); sendSingleTemp();
+      singleSP = clamp(singleSP + delta); redraw(); sendSingleTemp();
     }
     function adjustDualLow(delta) {
       dualLow = clamp(dualLow + delta);
@@ -835,7 +811,7 @@
       swingPill.line2.textContent = LABELS_SWING[String(attrs.swing_mode || 'off').toLowerCase()] || String(attrs.swing_mode || 'off');
 
       var newDual = curMode === 'heat_cool' &&
-                    attrs.target_temp_low !== undefined &&
+                    attrs.target_temp_low  !== undefined &&
                     attrs.target_temp_high !== undefined;
       if (newDual !== isDual) {
         isDual = newDual;
