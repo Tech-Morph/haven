@@ -1,5 +1,5 @@
 /* ============================================================
-   HAven - Thermostat Widget  v4
+   HAven - Thermostat Widget  v5
 
    Visual layout:
      ┌──────────────────────────────┐
@@ -17,6 +17,15 @@
      Track: clockwise from 135° → 405° (= 45°), sweep = 270°
      polar(deg): x = cx + r·cos(deg·π/180)
                  y = cy + r·sin(deg·π/180)
+
+   Color strategy (v5):
+     - rcEl()  → elevated surface: tries surface_2/surface2, falls back to
+                 rgba(255,255,255,0.14) so buttons/pills are always visible
+                 on dark backgrounds.
+     - rcTrack() → arc track ring: rgba(255,255,255,0.22) — clearly visible
+                   but not distracting behind the value arc.
+     - Labels promoted to rc('text') or rgba(255,255,255,0.70) so they read
+                   clearly without being as loud as the temperature number.
 
    RULE: Never write el.style.left/top/width/height – engine owns those.
    ============================================================ */
@@ -46,8 +55,36 @@
        2.  Helpers
     ------------------------------------------------------------------ */
     function rc(tok)  { return resolveColor(tok); }
-    function rcS2() {
-      return rc('surface_2') || rc('surface2') || 'rgba(255,255,255,0.08)';
+
+    /* Elevated surface for buttons / pills / chips.
+       Uses the theme token when it resolves to a non-empty string,
+       otherwise falls back to a visible semi-transparent white so
+       elements are always legible on dark widget backgrounds. */
+    function rcEl() {
+      var v = rc('surface_2') || rc('surface2');
+      if (v && v !== 'undefined' && v !== 'null') return v;
+      return 'rgba(255,255,255,0.14)';
+    }
+
+    /* Arc track — needs to be clearly visible as the "empty" portion
+       of the ring. Slightly brighter than the button surface. */
+    function rcTrack() {
+      return 'rgba(255,255,255,0.22)';
+    }
+
+    /* Muted label colour — readable but secondary.
+       Prefers the theme token; falls back to 70% white. */
+    function rcMuted() {
+      var v = rc(lblToken);
+      if (v && v !== 'undefined' && v !== 'null') return v;
+      return 'rgba(255,255,255,0.70)';
+    }
+
+    /* Full text colour — white on dark, dark on light. */
+    function rcText() {
+      var v = rc('text');
+      if (v && v !== 'undefined' && v !== 'null') return v;
+      return '#ffffff';
     }
 
     var latestState = w.entity ? (entityStates[w.entity] || null) : null;
@@ -119,9 +156,6 @@
     var pillGap  = 4;
     var arcZoneH = wH - pillH - pillGap;
 
-    /* Circle centre: horizontally centred, vertically at ~46% of zone
-       so that the gap (bottom of circle) sits near the bottom of arcZone
-       and leaves room for the ± buttons below the arc mid-line. */
     var margin = lineWidth + 8;
     var r  = Math.min(wW / 2, arcZoneH * 0.56) - margin;
     if (r < 12) r = 12;
@@ -162,10 +196,10 @@
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;';
     arcZone.appendChild(svg);
 
-    /* Track ring */
+    /* Track ring — clearly visible "empty" portion */
     var trackEl = document.createElementNS(ns, 'path');
     trackEl.setAttribute('fill',          'none');
-    trackEl.setAttribute('stroke',         rcS2());
+    trackEl.setAttribute('stroke',         rcTrack());
     trackEl.setAttribute('stroke-width',   lineWidth);
     trackEl.setAttribute('stroke-linecap', 'round');
     trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
@@ -198,19 +232,17 @@
       'display:flex', 'flex-direction:column',
       'align-items:center', 'justify-content:center',
       'text-align:center', 'pointer-events:none',
-      /* shift text up slightly — arc opens at bottom so visual
-         centre of the closed arc is above geometric centre      */
       'padding-bottom:' + Math.round(arcZoneH * 0.12) + 'px'
     ].join(';');
     arcZone.appendChild(centreDiv);
 
-    /* Mode label */
+    /* Mode label — muted but readable */
     var fsModeLabel = Math.max(10, Math.round(wW * 0.09));
     var modeLabelEl = document.createElement('div');
     modeLabelEl.style.cssText = [
       'font-size:'      + fsModeLabel + 'px',
       'font-weight:500',
-      'color:'          + rc(lblToken),
+      'color:'          + rcMuted(),
       'line-height:1.2',
       'letter-spacing:0.04em',
       'text-transform:capitalize'
@@ -231,7 +263,7 @@
       'font-size:'     + fsCur + 'px',
       'font-weight:700',
       'letter-spacing:-0.02em',
-      'color:'         + rc('text')
+      'color:'         + rcText()
     ].join(';');
     curNumEl.textContent = '--';
     curWrap.appendChild(curNumEl);
@@ -239,7 +271,7 @@
     curUnitEl.style.cssText = [
       'font-size:'   + fsUnit + 'px',
       'font-weight:600',
-      'color:'       + rc(lblToken),
+      'color:'       + rcMuted(),
       'margin-top:'  + Math.round(fsCur * 0.08) + 'px',
       'margin-left:2px'
     ].join(';');
@@ -247,13 +279,13 @@
     curWrap.appendChild(curUnitEl);
     centreDiv.appendChild(curWrap);
 
-    /* Setpoint label */
+    /* Setpoint label — muted but readable */
     var fsSP = Math.max(9, Math.round(wW * 0.08));
     var spLabelEl = document.createElement('div');
     spLabelEl.style.cssText = [
       'font-size:'  + fsSP + 'px',
       'font-weight:500',
-      'color:'      + rc(lblToken),
+      'color:'      + rcMuted(),
       'margin-top:4px',
       'line-height:1'
     ].join(';');
@@ -265,9 +297,7 @@
     ------------------------------------------------------------------ */
     var btnSize = Math.max(24, Math.round(wW * 0.16));
     var btnFS   = Math.max(14, Math.round(btnSize * 0.52));
-    /* horizontal spacing: place buttons symmetrically either side of cx */
     var btnSpacing = Math.round(wW * 0.14);
-    /* vertical position: just below the arc end-points (at circleBottom) */
     var btnY = Math.round(circleBottom - btnSize * 0.5);
     if (btnY + btnSize > arcZoneH) btnY = arcZoneH - btnSize - 2;
     if (btnY < 0) btnY = 2;
@@ -281,9 +311,9 @@
         'width:'         + btnSize + 'px',
         'height:'        + btnSize + 'px',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
-        'border:none',
-        'background:'    + rcS2(),
-        'color:'         + rc('text'),
+        'border:1px solid rgba(255,255,255,0.18)',
+        'background:'    + rcEl(),
+        'color:'         + rcText(),
         'font-size:'     + btnFS + 'px',
         'font-family:inherit',
         'cursor:pointer',
@@ -358,10 +388,10 @@
       pill.style.cssText = [
         'flex:1 1 0',
         'min-width:0',
-        'border:none',
+        'border:1px solid rgba(255,255,255,0.12)',
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
-        'background:'    + rcS2(),
-        'color:'         + rc('text'),
+        'background:'    + rcEl(),
+        'color:'         + rcText(),
         'display:flex',
         'flex-direction:row',
         'align-items:center',
@@ -379,7 +409,7 @@
       iconSpan.style.cssText = [
         'font-size:' + pillIconFS + 'px',
         'flex:0 0 auto',
-        'color:'     + rc(lblToken)
+        'color:'     + rcMuted()
       ].join(';');
       pill.appendChild(iconSpan);
 
@@ -393,7 +423,7 @@
       line1.style.cssText = [
         'font-size:'    + pillFS1 + 'px',
         'font-weight:400',
-        'color:'        + rc(lblToken),
+        'color:'        + rcMuted(),
         'line-height:1.1',
         'white-space:nowrap',
         'overflow:hidden',
@@ -406,7 +436,7 @@
       line2.style.cssText = [
         'font-size:'    + pillFS2 + 'px',
         'font-weight:600',
-        'color:'        + rc('text'),
+        'color:'        + rcText(),
         'line-height:1.1',
         'white-space:nowrap',
         'overflow:hidden',
@@ -459,7 +489,7 @@
         'flex-wrap:wrap',
         'gap:4px',
         'justify-content:center',
-        'box-shadow:0 4px 20px rgba(0,0,0,0.4)',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.5)',
         'z-index:10'
       ].join(';');
 
@@ -480,15 +510,15 @@
       availModes.forEach(function(mode) {
         var chip   = document.createElement('button');
         chip.type  = 'button';
-        var chipH2 = Math.max(20, Math.round(pillH * 0.70));
-        var chipFS2 = Math.max(9, Math.round(chipH2 * 0.52));
+        var chipH2  = Math.max(20, Math.round(pillH * 0.70));
+        var chipFS2 = Math.max(9,  Math.round(chipH2 * 0.52));
         chip.style.cssText = [
-          'border:none',
+          'border:1px solid rgba(255,255,255,0.14)',
           'border-radius:' + Math.round(chipH2 / 2) + 'px',
           'height:'        + chipH2 + 'px',
           'padding:0 8px',
-          'background:'    + rcS2(),
-          'color:'         + rc('text'),
+          'background:'    + rcEl(),
+          'color:'         + rcText(),
           'font-size:'     + chipFS2 + 'px',
           'font-family:inherit',
           'cursor:pointer',
@@ -542,7 +572,7 @@
       if (m === 'heat' || m === 'dry')        return rc(heatToken);
       if (m === 'cool' || m === 'auto')       return rc(coolToken);
       if (m === 'heat_cool')                  return rc(heatToken);
-      if (m === 'fan_only' || m === 'off')    return rc(lblToken);
+      if (m === 'fan_only' || m === 'off')    return rcMuted();
       return rc(arcToken);
     }
 
