@@ -1,13 +1,14 @@
 /* ============================================================
-   HAven - Thermostat Widget  v8
+   HAven - Thermostat Widget  v9
 
-   Changes vs v7:
-     cy multiplier  : 0.42 → 0.48   (arc moves down slightly)
-     background     : transparent   (blends with dashboard)
-     borderRadius   : removed       (no card border on transparent bg)
-     cardRadius cfg : still honoured if bg is set explicitly
+   Changes vs v8:
+     rcEl()   : no longer resolves surface_2; uses rgba(255,255,255,0.10)
+                so pills/buttons are a subtle frosted overlay instead of
+                a solid surface token that contrasts with the dashboard bg.
+     rcTrack(): raised to rgba(255,255,255,0.18) for visibility on
+                transparent bg (was 0.22 which looked ok on dark card).
 
-   RULE: Never write el.style.left/top/width/height – engine owns those.
+   RULE: Never write el.style.left/top/width/height - engine owns those.
    ============================================================ */
 
   function renderThermostat(el, w) {
@@ -36,12 +37,11 @@
        2.  Helpers
     ------------------------------------------------------------------ */
     function rc(tok)  { return resolveColor(tok); }
-    function rcEl() {
-      var v = rc('surface_2') || rc('surface2');
-      if (v && v !== 'undefined' && v !== 'null') return v;
-      return 'rgba(255,255,255,0.14)';
-    }
-    function rcTrack() { return 'rgba(255,255,255,0.22)'; }
+
+    /* Pills / buttons: frosted white overlay - no solid surface token */
+    function rcEl() { return 'rgba(255,255,255,0.10)'; }
+
+    function rcTrack() { return 'rgba(255,255,255,0.18)'; }
     function rcMuted() {
       var v = rc(lblToken);
       if (v && v !== 'undefined' && v !== 'null') return v;
@@ -120,7 +120,6 @@
     var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    /* 0.48: arc sits slightly lower than v7 (was 0.42) */
     var cy = arcZoneH * 0.48;
 
     var circleBottom = cy + r;
@@ -134,7 +133,6 @@
     el.style.flexDirection = 'column';
     el.style.boxSizing     = 'border-box';
     el.style.userSelect    = 'none';
-    /* transparent unless w.background is explicitly provided */
     if (bgToken) {
       el.style.background   = rc(bgToken);
       el.style.borderRadius = cardRadius + 'px';
@@ -253,7 +251,7 @@
     centreDiv.appendChild(spLabelEl);
 
     /* ------------------------------------------------------------------
-       7.  ± buttons
+       7.  +/- buttons
     ------------------------------------------------------------------ */
     var btnSize    = Math.max(22, Math.round(wW * 0.13));
     var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
@@ -441,8 +439,10 @@
     function makeListPicker(options, onSelect) {
       closeActiveOverlay();
       var overlay = document.createElement('div');
-      /* picker always gets a solid bg so it reads on any dashboard colour */
-      var overlayBg = bgToken ? rc(bgToken) : (rc('surface') || 'rgba(30,30,30,0.96)');
+      /* picker needs a legible solid bg regardless of dashboard colour */
+      var overlayBg = bgToken
+        ? rc(bgToken)
+        : (rc('surface') || rc('surface_2') || 'rgba(24,24,28,0.97)');
       overlay.style.cssText = [
         'position:absolute',
         'bottom:' + (pillH + pillGap) + 'px',
@@ -470,7 +470,7 @@
           'border-radius:' + Math.round(chipH / 2) + 'px',
           'height:'        + chipH  + 'px',
           'padding:0 8px',
-          'background:'    + rcEl(),
+          'background:rgba(255,255,255,0.10)',
           'color:'         + rcText(),
           'font-size:'     + chipFS + 'px',
           'font-family:inherit',
