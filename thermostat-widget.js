@@ -1,5 +1,5 @@
 /* ============================================================
-   HAven - Thermostat Widget  v5
+   HAven - Thermostat Widget  v6
 
    Visual layout:
      ┌──────────────────────────────┐
@@ -18,14 +18,14 @@
      polar(deg): x = cx + r·cos(deg·π/180)
                  y = cy + r·sin(deg·π/180)
 
-   Color strategy (v5):
-     - rcEl()  → elevated surface: tries surface_2/surface2, falls back to
-                 rgba(255,255,255,0.14) so buttons/pills are always visible
-                 on dark backgrounds.
-     - rcTrack() → arc track ring: rgba(255,255,255,0.22) — clearly visible
-                   but not distracting behind the value arc.
-     - Labels promoted to rc('text') or rgba(255,255,255,0.70) so they read
-                   clearly without being as loud as the temperature number.
+   Scale changes (v6 vs v5):
+     r multiplier : 0.56 → 0.46   (arc fits inside card with room to spare)
+     cy multiplier: 0.46 → 0.42   (circle sits higher, buttons don't clip)
+     fsCur        : 0.28 → 0.22   (temp number smaller, still dominant)
+     lineWidth cap: 18  → max 14  (thinner stroke on small cards)
+     btnSize      : 0.16 → 0.13   (buttons proportional to smaller arc)
+     btnSpacing   : 0.14 → 0.12
+     arcZoneH pad : 0.12 → 0.10   (less wasted space below arc)
 
    RULE: Never write el.style.left/top/width/height – engine owns those.
    ============================================================ */
@@ -43,7 +43,8 @@
     var cfgStep = isNaN(parseFloat(w.step)) ? 1 : Math.max(0.1, parseFloat(w.step));
     if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    var lineWidth  = Math.max(4, parseFloat(w.line_width) || 18);
+    /* Cap lineWidth at 14 so the ring doesn't dominate on small cards */
+    var lineWidth  = Math.min(14, Math.max(4, parseFloat(w.line_width) || 12));
     var bgToken    = w.background  || 'surface';
     var arcToken   = w.color       || 'primary';
     var heatToken  = w.heat_color  || 'warning';
@@ -56,31 +57,17 @@
     ------------------------------------------------------------------ */
     function rc(tok)  { return resolveColor(tok); }
 
-    /* Elevated surface for buttons / pills / chips.
-       Uses the theme token when it resolves to a non-empty string,
-       otherwise falls back to a visible semi-transparent white so
-       elements are always legible on dark widget backgrounds. */
     function rcEl() {
       var v = rc('surface_2') || rc('surface2');
       if (v && v !== 'undefined' && v !== 'null') return v;
       return 'rgba(255,255,255,0.14)';
     }
-
-    /* Arc track — needs to be clearly visible as the "empty" portion
-       of the ring. Slightly brighter than the button surface. */
-    function rcTrack() {
-      return 'rgba(255,255,255,0.22)';
-    }
-
-    /* Muted label colour — readable but secondary.
-       Prefers the theme token; falls back to 70% white. */
+    function rcTrack() { return 'rgba(255,255,255,0.22)'; }
     function rcMuted() {
       var v = rc(lblToken);
       if (v && v !== 'undefined' && v !== 'null') return v;
       return 'rgba(255,255,255,0.70)';
     }
-
-    /* Full text colour — white on dark, dark on light. */
     function rcText() {
       var v = rc('text');
       if (v && v !== 'undefined' && v !== 'null') return v;
@@ -120,23 +107,18 @@
 
     /* ------------------------------------------------------------------
        Arc geometry
-       Gap is at the bottom. The arc runs CLOCKWISE from 135° to 405°.
-       SVG convention: 0° = 3 o'clock, angles increase clockwise.
-       polar() maps degrees to SVG x/y.
     ------------------------------------------------------------------ */
-    var ARC_START = 135;   /* lower-left  */
-    var ARC_SWEEP = 270;   /* degrees, clockwise */
-    var ARC_END   = ARC_START + ARC_SWEEP;  /* 405 = same as 45° */
+    var ARC_START = 135;
+    var ARC_SWEEP = 270;
+    var ARC_END   = ARC_START + ARC_SWEEP;
 
     function polar(cx, cy, r, deg) {
       var rad = deg * Math.PI / 180;
       return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
     }
 
-    /* Draw a clockwise arc from startDeg to endDeg */
     function arcPath(cx, cy, r, startDeg, endDeg) {
       var sweep = endDeg - startDeg;
-      /* normalise sweep to (0, 360] */
       while (sweep <= 0)   sweep += 360;
       while (sweep > 360)  sweep -= 360;
       if (sweep < 0.1) return '';
@@ -147,26 +129,28 @@
     }
 
     /* ------------------------------------------------------------------
-       3.  Dimensions  (never write back to el.style)
+       3.  Dimensions
     ------------------------------------------------------------------ */
     var wW = w.w;
     var wH = w.h;
 
-    var pillH    = Math.max(36, Math.round(wH * 0.18));
+    /* Pills zone: slightly smaller so arc gets more room */
+    var pillH    = Math.max(32, Math.round(wH * 0.16));
     var pillGap  = 4;
     var arcZoneH = wH - pillH - pillGap;
 
-    var margin = lineWidth + 8;
-    var r  = Math.min(wW / 2, arcZoneH * 0.56) - margin;
+    /* Arc radius: 0.46 of arcZoneH keeps circle well inside the card */
+    var margin = lineWidth + 6;
+    var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    var cy = arcZoneH * 0.46;
+    /* Centre higher (0.42) so the gap+buttons sit comfortably at bottom */
+    var cy = arcZoneH * 0.42;
 
-    /* Bottom of the circle (geometric) */
     var circleBottom = cy + r;
 
     /* ------------------------------------------------------------------
-       4.  Root element — NEVER touch left/top/width/height
+       4.  Root element
     ------------------------------------------------------------------ */
     el.style.position      = 'absolute';
     el.style.overflow      = 'hidden';
@@ -185,7 +169,7 @@
       'position:relative',
       'flex:0 0 ' + arcZoneH + 'px',
       'width:100%',
-      'overflow:visible'
+      'overflow:hidden'        /* clip arc to zone — no bleed */
     ].join(';');
     el.appendChild(arcZone);
 
@@ -196,7 +180,7 @@
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;';
     arcZone.appendChild(svg);
 
-    /* Track ring — clearly visible "empty" portion */
+    /* Track ring */
     var trackEl = document.createElementNS(ns, 'path');
     trackEl.setAttribute('fill',          'none');
     trackEl.setAttribute('stroke',         rcTrack());
@@ -232,12 +216,13 @@
       'display:flex', 'flex-direction:column',
       'align-items:center', 'justify-content:center',
       'text-align:center', 'pointer-events:none',
-      'padding-bottom:' + Math.round(arcZoneH * 0.12) + 'px'
+      /* pad bottom so text sits in the closed part of the arc */
+      'padding-bottom:' + Math.round(arcZoneH * 0.10) + 'px'
     ].join(';');
     arcZone.appendChild(centreDiv);
 
-    /* Mode label — muted but readable */
-    var fsModeLabel = Math.max(10, Math.round(wW * 0.09));
+    /* Mode label */
+    var fsModeLabel = Math.max(9, Math.round(wW * 0.075));
     var modeLabelEl = document.createElement('div');
     modeLabelEl.style.cssText = [
       'font-size:'      + fsModeLabel + 'px',
@@ -250,9 +235,9 @@
     modeLabelEl.textContent = 'Off';
     centreDiv.appendChild(modeLabelEl);
 
-    /* Current temperature — large with superscript unit */
-    var fsCur  = Math.max(28, Math.round(wW * 0.28));
-    var fsUnit = Math.max(12, Math.round(fsCur * 0.38));
+    /* Current temperature */
+    var fsCur  = Math.max(24, Math.round(wW * 0.22));
+    var fsUnit = Math.max(11, Math.round(fsCur * 0.36));
     var curWrap = document.createElement('div');
     curWrap.style.cssText = [
       'display:flex', 'align-items:flex-start', 'justify-content:center',
@@ -279,28 +264,28 @@
     curWrap.appendChild(curUnitEl);
     centreDiv.appendChild(curWrap);
 
-    /* Setpoint label — muted but readable */
-    var fsSP = Math.max(9, Math.round(wW * 0.08));
+    /* Setpoint label */
+    var fsSP = Math.max(8, Math.round(wW * 0.07));
     var spLabelEl = document.createElement('div');
     spLabelEl.style.cssText = [
       'font-size:'  + fsSP + 'px',
       'font-weight:500',
       'color:'      + rcMuted(),
-      'margin-top:4px',
+      'margin-top:3px',
       'line-height:1'
     ].join(';');
     spLabelEl.textContent = 'Set --';
     centreDiv.appendChild(spLabelEl);
 
     /* ------------------------------------------------------------------
-       7.  ± buttons — centred in the gap at the bottom of the arc
+       7.  ± buttons
     ------------------------------------------------------------------ */
-    var btnSize = Math.max(24, Math.round(wW * 0.16));
-    var btnFS   = Math.max(14, Math.round(btnSize * 0.52));
-    var btnSpacing = Math.round(wW * 0.14);
+    var btnSize    = Math.max(22, Math.round(wW * 0.13));
+    var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
+    var btnSpacing = Math.round(wW * 0.12);
     var btnY = Math.round(circleBottom - btnSize * 0.5);
-    if (btnY + btnSize > arcZoneH) btnY = arcZoneH - btnSize - 2;
-    if (btnY < 0) btnY = 2;
+    if (btnY + btnSize > arcZoneH - 2) btnY = arcZoneH - btnSize - 2;
+    if (btnY < 2) btnY = 2;
 
     function makePMBtn(label, onclick) {
       var btn = document.createElement('button');
@@ -363,7 +348,7 @@
     arcZone.appendChild(plusBtnHi);
 
     /* ------------------------------------------------------------------
-       8.  Pills zone  (Mode · Fan mode · Swing mode)
+       8.  Pills zone
     ------------------------------------------------------------------ */
     var pillsZone = document.createElement('div');
     pillsZone.style.cssText = [
@@ -378,9 +363,9 @@
     ].join(';');
     el.appendChild(pillsZone);
 
-    var pillFS1    = Math.max(8,  Math.round(pillH * 0.24));
-    var pillFS2    = Math.max(9,  Math.round(pillH * 0.28));
-    var pillIconFS = Math.max(10, Math.round(pillH * 0.36));
+    var pillFS1    = Math.max(7,  Math.round(pillH * 0.22));
+    var pillFS2    = Math.max(8,  Math.round(pillH * 0.26));
+    var pillIconFS = Math.max(9,  Math.round(pillH * 0.32));
 
     function makePill(iconStr, topText, bottomText) {
       var pill = document.createElement('button');
@@ -396,8 +381,8 @@
         'flex-direction:row',
         'align-items:center',
         'justify-content:flex-start',
-        'gap:5px',
-        'padding:0 7px',
+        'gap:4px',
+        'padding:0 6px',
         'box-sizing:border-box',
         'cursor:pointer',
         'font-family:inherit',
@@ -508,8 +493,8 @@
         : MODES;
 
       availModes.forEach(function(mode) {
-        var chip   = document.createElement('button');
-        chip.type  = 'button';
+        var chip    = document.createElement('button');
+        chip.type   = 'button';
         var chipH2  = Math.max(20, Math.round(pillH * 0.70));
         var chipFS2 = Math.max(9,  Math.round(chipH2 * 0.52));
         chip.style.cssText = [
@@ -681,26 +666,21 @@
       var attrs = state.attributes || {};
       var eu    = getEU(state);
 
-      /* Current temp */
       var cur = parseFloat(attrs.current_temperature);
       curNumEl.textContent = isNaN(cur) ? '--' : fmt(toDisplay(cur, eu));
 
-      /* Mode */
       curMode = String(state.state || '').toLowerCase();
       var modeStr = LABELS_MODE[curMode] || curMode;
       modeLabelEl.textContent    = modeStr;
       modePill.line2.textContent = modeStr;
       setContent(modePill.icon, ICONS_MODE[curMode] || '[mdi:thermostat]');
 
-      /* Fan */
       var fanVal = String(attrs.fan_mode || attrs.fan_speed || 'auto').toLowerCase();
       fanPill.line2.textContent = LABELS_FAN[fanVal] || fanVal;
 
-      /* Swing */
       var swingVal = String(attrs.swing_mode || 'off').toLowerCase();
       swingPill.line2.textContent = LABELS_SWING[swingVal] || swingVal;
 
-      /* Single vs dual */
       var newDual = curMode === 'heat_cool' &&
                     attrs.target_temp_low  !== undefined &&
                     attrs.target_temp_high !== undefined;
