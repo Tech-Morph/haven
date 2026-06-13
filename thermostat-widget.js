@@ -1,15 +1,13 @@
 /* ============================================================
-   HAven - Thermostat Widget  v10
+   HAven - Thermostat Widget  v11
 
-   Changes vs v9:
-     - ALL container divs (root, arcZone, pillsZone, centreDiv,
-       txtWrap) have background:transparent / none explicitly set
-     - overflow:hidden removed from root and arcZone so no
-       invisible box clips/shows through
-     - Pills and buttons keep their rgba(255,255,255,0.10) face
-       so they still look like tappable elements, but the
-       surrounding area is fully see-through
-     - bgToken path still lets user opt-in to a solid card bg
+   Key fix vs v10:
+     - el.style.setProperty('background','none','important')
+       so the engine's own CSS class cannot override us
+     - Same !important treatment for box-shadow and
+       backdrop-filter on the root element
+     - bgToken path still paints a real card when the user
+       explicitly sets background: <token>
 
    RULE: Never write el.style.left/top/width/height - engine owns those.
    ============================================================ */
@@ -117,25 +115,35 @@
     var circleBottom = cy + r;
 
     /* ------------------------------------------------------------------
-       4.  Root element — transparent, no overflow clip
+       4.  Root element
+         Use setProperty with 'important' so the engine's own CSS class
+         cannot override background / box-shadow / backdrop-filter.
     ------------------------------------------------------------------ */
-    el.style.position        = 'absolute';
-    el.style.display         = 'flex';
-    el.style.flexDirection   = 'column';
-    el.style.boxSizing       = 'border-box';
-    el.style.userSelect      = 'none';
-    el.style.overflow        = 'visible';   /* no invisible box */
+    el.style.position      = 'absolute';
+    el.style.display       = 'flex';
+    el.style.flexDirection = 'column';
+    el.style.boxSizing     = 'border-box';
+    el.style.userSelect    = 'none';
+    el.style.overflow      = 'visible';
+
     if (bgToken) {
-      el.style.background    = rc(bgToken);
-      el.style.borderRadius  = cardRadius + 'px';
-      el.style.overflow      = 'hidden';
+      /* User explicitly wants a card background */
+      el.style.setProperty('background',       rc(bgToken),  'important');
+      el.style.setProperty('box-shadow',       'none',       'important');
+      el.style.setProperty('backdrop-filter',  'none',       'important');
+      el.style.borderRadius = cardRadius + 'px';
+      el.style.overflow     = 'hidden';
     } else {
-      el.style.background    = 'transparent';
-      el.style.borderRadius  = '0';
+      /* Fully transparent / floating */
+      el.style.setProperty('background',       'none',       'important');
+      el.style.setProperty('box-shadow',       'none',       'important');
+      el.style.setProperty('backdrop-filter',  'none',       'important');
+      el.style.setProperty('-webkit-backdrop-filter', 'none','important');
+      el.style.borderRadius = '0';
     }
 
     /* ------------------------------------------------------------------
-       5.  Arc zone — transparent, no overflow clip
+       5.  Arc zone — transparent
     ------------------------------------------------------------------ */
     var arcZone = document.createElement('div');
     arcZone.style.cssText = [
