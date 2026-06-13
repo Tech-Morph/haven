@@ -1,31 +1,13 @@
 /* ============================================================
-   HAven - Thermostat Widget  v6
+   HAven - Thermostat Widget  v7
 
-   Visual layout:
-     ┌──────────────────────────────┐
-     │   horseshoe arc (gap bottom) │
-     │     mode label  (muted)      │
-     │     75°F        (large bold) │
-     │     Set 68°F    (muted)      │
-     │      [ − ]  [ + ]            │  ← inside arc gap
-     ├──────────────────────────────┤
-     │  [Mode/Off][Fan/Auto][Swing] │
-     └──────────────────────────────┘
-
-   Arc geometry (SVG convention: 0°=right, clockwise positive)
-     Gap  : bottom of circle, from 45° (lower-right) to 135° (lower-left)
-     Track: clockwise from 135° → 405° (= 45°), sweep = 270°
-     polar(deg): x = cx + r·cos(deg·π/180)
-                 y = cy + r·sin(deg·π/180)
-
-   Scale changes (v6 vs v5):
-     r multiplier : 0.56 → 0.46   (arc fits inside card with room to spare)
-     cy multiplier: 0.46 → 0.42   (circle sits higher, buttons don't clip)
-     fsCur        : 0.28 → 0.22   (temp number smaller, still dominant)
-     lineWidth cap: 18  → max 14  (thinner stroke on small cards)
-     btnSize      : 0.16 → 0.13   (buttons proportional to smaller arc)
-     btnSpacing   : 0.14 → 0.12
-     arcZoneH pad : 0.12 → 0.10   (less wasted space below arc)
+   Changes vs v6:
+     btnY offset  : buttons shifted down by +5% of arcZoneH so they
+                    sit in the gap rather than riding the arc bottom.
+     Fan pill     : click opens fan_mode picker (climate.set_fan_mode)
+     Swing pill   : click opens swing_mode picker (climate.set_swing_mode)
+     Generic picker helper makeListPicker() replaces duplicated overlay
+                    logic for mode / fan / swing pickers.
 
    RULE: Never write el.style.left/top/width/height – engine owns those.
    ============================================================ */
@@ -43,7 +25,6 @@
     var cfgStep = isNaN(parseFloat(w.step)) ? 1 : Math.max(0.1, parseFloat(w.step));
     if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    /* Cap lineWidth at 14 so the ring doesn't dominate on small cards */
     var lineWidth  = Math.min(14, Math.max(4, parseFloat(w.line_width) || 12));
     var bgToken    = w.background  || 'surface';
     var arcToken   = w.color       || 'primary';
@@ -56,7 +37,6 @@
        2.  Helpers
     ------------------------------------------------------------------ */
     function rc(tok)  { return resolveColor(tok); }
-
     function rcEl() {
       var v = rc('surface_2') || rc('surface2');
       if (v && v !== 'undefined' && v !== 'null') return v;
@@ -116,14 +96,13 @@
       var rad = deg * Math.PI / 180;
       return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
     }
-
     function arcPath(cx, cy, r, startDeg, endDeg) {
       var sweep = endDeg - startDeg;
       while (sweep <= 0)   sweep += 360;
       while (sweep > 360)  sweep -= 360;
       if (sweep < 0.1) return '';
-      var s     = polar(cx, cy, r, startDeg);
-      var e     = polar(cx, cy, r, endDeg);
+      var s = polar(cx, cy, r, startDeg);
+      var e = polar(cx, cy, r, endDeg);
       var large = sweep > 180 ? 1 : 0;
       return ['M', s.x, s.y, 'A', r, r, 0, large, 1, e.x, e.y].join(' ');
     }
@@ -134,17 +113,14 @@
     var wW = w.w;
     var wH = w.h;
 
-    /* Pills zone: slightly smaller so arc gets more room */
     var pillH    = Math.max(32, Math.round(wH * 0.16));
     var pillGap  = 4;
     var arcZoneH = wH - pillH - pillGap;
 
-    /* Arc radius: 0.46 of arcZoneH keeps circle well inside the card */
     var margin = lineWidth + 6;
     var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    /* Centre higher (0.42) so the gap+buttons sit comfortably at bottom */
     var cy = arcZoneH * 0.42;
 
     var circleBottom = cy + r;
@@ -169,7 +145,7 @@
       'position:relative',
       'flex:0 0 ' + arcZoneH + 'px',
       'width:100%',
-      'overflow:hidden'        /* clip arc to zone — no bleed */
+      'overflow:hidden'
     ].join(';');
     el.appendChild(arcZone);
 
@@ -180,7 +156,6 @@
     svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;';
     arcZone.appendChild(svg);
 
-    /* Track ring */
     var trackEl = document.createElementNS(ns, 'path');
     trackEl.setAttribute('fill',          'none');
     trackEl.setAttribute('stroke',         rcTrack());
@@ -189,7 +164,6 @@
     trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
     svg.appendChild(trackEl);
 
-    /* Value arc */
     var valueEl = document.createElementNS(ns, 'path');
     valueEl.setAttribute('fill',          'none');
     valueEl.setAttribute('stroke-width',   lineWidth);
@@ -197,7 +171,6 @@
     valueEl.setAttribute('stroke',         rc(arcToken));
     svg.appendChild(valueEl);
 
-    /* Value arc 2 — dual heat_cool mode */
     var value2El = document.createElementNS(ns, 'path');
     value2El.setAttribute('fill',           'none');
     value2El.setAttribute('stroke-width',   Math.max(4, Math.round(lineWidth * 0.6)));
@@ -216,12 +189,10 @@
       'display:flex', 'flex-direction:column',
       'align-items:center', 'justify-content:center',
       'text-align:center', 'pointer-events:none',
-      /* pad bottom so text sits in the closed part of the arc */
       'padding-bottom:' + Math.round(arcZoneH * 0.10) + 'px'
     ].join(';');
     arcZone.appendChild(centreDiv);
 
-    /* Mode label */
     var fsModeLabel = Math.max(9, Math.round(wW * 0.075));
     var modeLabelEl = document.createElement('div');
     modeLabelEl.style.cssText = [
@@ -235,7 +206,6 @@
     modeLabelEl.textContent = 'Off';
     centreDiv.appendChild(modeLabelEl);
 
-    /* Current temperature */
     var fsCur  = Math.max(24, Math.round(wW * 0.22));
     var fsUnit = Math.max(11, Math.round(fsCur * 0.36));
     var curWrap = document.createElement('div');
@@ -264,7 +234,6 @@
     curWrap.appendChild(curUnitEl);
     centreDiv.appendChild(curWrap);
 
-    /* Setpoint label */
     var fsSP = Math.max(8, Math.round(wW * 0.07));
     var spLabelEl = document.createElement('div');
     spLabelEl.style.cssText = [
@@ -279,11 +248,14 @@
 
     /* ------------------------------------------------------------------
        7.  ± buttons
+         btnY: centre on circleBottom, then nudge down 5% of arcZoneH
+         so they sit in the open gap of the horseshoe.
     ------------------------------------------------------------------ */
     var btnSize    = Math.max(22, Math.round(wW * 0.13));
     var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
     var btnSpacing = Math.round(wW * 0.12);
-    var btnY = Math.round(circleBottom - btnSize * 0.5);
+    var btnNudge   = Math.round(arcZoneH * 0.05);   /* gentle downward push */
+    var btnY = Math.round(circleBottom - btnSize * 0.5) + btnNudge;
     if (btnY + btnSize > arcZoneH - 2) btnY = arcZoneH - btnSize - 2;
     if (btnY < 2) btnY = 2;
 
@@ -330,7 +302,6 @@
     arcZone.appendChild(minusBtn);
     arcZone.appendChild(plusBtn);
 
-    /* Dual ± buttons (heat_cool mode) */
     var minusBtnLo = makePMBtn('\u2212', function() { adjustDualLow(-cfgStep); });
     var plusBtnLo  = makePMBtn('+',      function() { adjustDualLow(cfgStep);  });
     var minusBtnHi = makePMBtn('\u2212', function() { adjustDualHigh(-cfgStep); });
@@ -443,26 +414,33 @@
       return { pill: pill, icon: iconSpan, line1: line1, line2: line2 };
     }
 
-    var modePill  = makePill('[mdi:power]',                 'Mode',       'Off');
-    var fanPill   = makePill('[mdi:fan]',                   'Fan mode',   'Auto');
-    var swingPill = makePill('[mdi:arrow-split-vertical]',  'Swing mode', 'Off');
+    var modePill  = makePill('[mdi:power]',                'Mode',       'Off');
+    var fanPill   = makePill('[mdi:fan]',                  'Fan mode',   'Auto');
+    var swingPill = makePill('[mdi:arrow-split-vertical]', 'Swing mode', 'Off');
     [modePill, fanPill, swingPill].forEach(function(p) { pillsZone.appendChild(p.pill); });
 
-    /* Mode picker overlay */
-    var modeOverlay    = null;
-    var modePickerOpen = false;
+    /* ------------------------------------------------------------------
+       Generic list-picker overlay
+       options : [{ value, label, icon }]
+       onSelect: function(value)
+    ------------------------------------------------------------------ */
+    var activeOverlay    = null;
+    var activeCloseExt   = null;
 
-    modePill.pill.addEventListener('click', function(e) {
-      e.stopPropagation();
-      toggleModePicker();
-      if (typeof resetReturnTimer === 'function') resetReturnTimer();
-    });
+    function closeActiveOverlay() {
+      if (activeOverlay && activeOverlay.parentNode)
+        activeOverlay.parentNode.removeChild(activeOverlay);
+      if (activeCloseExt)
+        document.removeEventListener('click', activeCloseExt);
+      activeOverlay  = null;
+      activeCloseExt = null;
+    }
 
-    function toggleModePicker() {
-      if (modePickerOpen) { closeModePicker(); return; }
-      modePickerOpen = true;
-      modeOverlay = document.createElement('div');
-      modeOverlay.style.cssText = [
+    function makeListPicker(options, onSelect) {
+      closeActiveOverlay();
+
+      var overlay = document.createElement('div');
+      overlay.style.cssText = [
         'position:absolute',
         'bottom:' + (pillH + pillGap) + 'px',
         'left:'   + pillGap + 'px',
@@ -478,68 +456,115 @@
         'z-index:10'
       ].join(';');
 
-      var MODES  = ['auto', 'heat', 'cool', 'heat_cool', 'dry', 'fan_only', 'off'];
-      var ICONS  = {
-        heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
-        auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
-        fan_only:'[mdi:fan]', off:'[mdi:power]'
-      };
-      var LABELS = {
-        heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool',
-        auto:'Auto', dry:'Dry',   fan_only:'Fan', off:'Off'
-      };
-      var availModes = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
-        ? latestState.attributes.hvac_modes
-        : MODES;
+      var chipH  = Math.max(20, Math.round(pillH * 0.70));
+      var chipFS = Math.max(9,  Math.round(chipH  * 0.52));
 
-      availModes.forEach(function(mode) {
-        var chip    = document.createElement('button');
-        chip.type   = 'button';
-        var chipH2  = Math.max(20, Math.round(pillH * 0.70));
-        var chipFS2 = Math.max(9,  Math.round(chipH2 * 0.52));
+      options.forEach(function(opt) {
+        var chip  = document.createElement('button');
+        chip.type = 'button';
         chip.style.cssText = [
           'border:1px solid rgba(255,255,255,0.14)',
-          'border-radius:' + Math.round(chipH2 / 2) + 'px',
-          'height:'        + chipH2 + 'px',
+          'border-radius:' + Math.round(chipH / 2) + 'px',
+          'height:'        + chipH  + 'px',
           'padding:0 8px',
           'background:'    + rcEl(),
           'color:'         + rcText(),
-          'font-size:'     + chipFS2 + 'px',
+          'font-size:'     + chipFS + 'px',
           'font-family:inherit',
           'cursor:pointer',
           'display:flex',
           'align-items:center',
           'gap:4px'
         ].join(';');
-        var ic = document.createElement('span');
-        setContent(ic, ICONS[mode] || '[mdi:thermostat]');
-        ic.style.fontSize = chipFS2 + 'px';
-        chip.appendChild(ic);
+        if (opt.icon) {
+          var ic = document.createElement('span');
+          setContent(ic, opt.icon);
+          ic.style.fontSize = chipFS + 'px';
+          chip.appendChild(ic);
+        }
         var tx = document.createElement('span');
-        tx.textContent = LABELS[mode] || mode;
+        tx.textContent = opt.label;
         chip.appendChild(tx);
         chip.addEventListener('click', function(e) {
           e.stopPropagation();
-          sendMode(mode);
-          closeModePicker();
+          onSelect(opt.value);
+          closeActiveOverlay();
           if (typeof resetReturnTimer === 'function') resetReturnTimer();
         });
-        modeOverlay.appendChild(chip);
+        overlay.appendChild(chip);
       });
 
-      el.appendChild(modeOverlay);
+      el.appendChild(overlay);
+      activeOverlay = overlay;
       setTimeout(function() {
-        document.addEventListener('click', closeModePickerExternal);
+        activeCloseExt = function() { closeActiveOverlay(); };
+        document.addEventListener('click', activeCloseExt);
       }, 0);
     }
 
-    function closeModePickerExternal() { closeModePicker(); }
-    function closeModePicker() {
-      if (modeOverlay && modeOverlay.parentNode) modeOverlay.parentNode.removeChild(modeOverlay);
-      modeOverlay     = null;
-      modePickerOpen  = false;
-      document.removeEventListener('click', closeModePickerExternal);
-    }
+    /* ------------------------------------------------------------------
+       Mode picker
+    ------------------------------------------------------------------ */
+    var HVAC_ICONS   = { heat:'[mdi:fire]', cool:'[mdi:snowflake]',
+                         heat_cool:'[mdi:autorenew]', auto:'[mdi:thermostat-auto]',
+                         dry:'[mdi:water-percent]', fan_only:'[mdi:fan]', off:'[mdi:power]' };
+    var HVAC_LABELS  = { heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool',
+                         auto:'Auto', dry:'Dry',   fan_only:'Fan', off:'Off' };
+    var DEFAULT_HVAC = ['auto','heat','cool','heat_cool','dry','fan_only','off'];
+
+    modePill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
+        ? latestState.attributes.hvac_modes : DEFAULT_HVAC;
+      var opts = avail.map(function(m) {
+        return { value: m, label: HVAC_LABELS[m] || m, icon: HVAC_ICONS[m] || '[mdi:thermostat]' };
+      });
+      makeListPicker(opts, function(mode) { sendMode(mode); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
+    });
+
+    /* ------------------------------------------------------------------
+       Fan picker
+    ------------------------------------------------------------------ */
+    var FAN_ICONS  = { auto:'[mdi:fan-auto]', low:'[mdi:fan-speed-1]',
+                       medium:'[mdi:fan-speed-2]', high:'[mdi:fan-speed-3]',
+                       medium_high:'[mdi:fan-speed-3]', quiet:'[mdi:fan-off]',
+                       'on':'[mdi:fan]', 'off':'[mdi:fan-off]' };
+    var FAN_LABELS = { auto:'Auto', low:'Low', medium:'Medium', high:'High',
+                       medium_high:'Med-High', quiet:'Quiet', 'on':'On', 'off':'Off' };
+    var DEFAULT_FAN = ['auto','low','medium','high','off'];
+
+    fanPill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.fan_modes)
+        ? latestState.attributes.fan_modes : DEFAULT_FAN;
+      var opts = avail.map(function(f) {
+        return { value: f, label: FAN_LABELS[f] || f, icon: FAN_ICONS[f] || '[mdi:fan]' };
+      });
+      makeListPicker(opts, function(fanMode) { sendFanMode(fanMode); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
+    });
+
+    /* ------------------------------------------------------------------
+       Swing picker
+    ------------------------------------------------------------------ */
+    var SWING_ICONS  = { 'off':'[mdi:arrow-collapse-vertical]', both:'[mdi:arrow-split-vertical]',
+                          vertical:'[mdi:arrow-up-down]', horizontal:'[mdi:arrow-left-right]',
+                          upper:'[mdi:arrow-up]' };
+    var SWING_LABELS = { 'off':'Off', both:'Both', vertical:'Vertical',
+                          horizontal:'Horizontal', upper:'Upper' };
+    var DEFAULT_SWING = ['off','vertical','horizontal','both'];
+
+    swingPill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.swing_modes)
+        ? latestState.attributes.swing_modes : DEFAULT_SWING;
+      var opts = avail.map(function(s) {
+        return { value: s, label: SWING_LABELS[s] || s, icon: SWING_ICONS[s] || '[mdi:arrow-split-vertical]' };
+      });
+      makeListPicker(opts, function(swingMode) { sendSwingMode(swingMode); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
+    });
 
     /* ------------------------------------------------------------------
        9.  Setpoint state
@@ -554,10 +579,10 @@
        10. Arc colour helpers
     ------------------------------------------------------------------ */
     function modeColor(m) {
-      if (m === 'heat' || m === 'dry')        return rc(heatToken);
-      if (m === 'cool' || m === 'auto')       return rc(coolToken);
-      if (m === 'heat_cool')                  return rc(heatToken);
-      if (m === 'fan_only' || m === 'off')    return rcMuted();
+      if (m === 'heat' || m === 'dry')     return rc(heatToken);
+      if (m === 'cool' || m === 'auto')    return rc(coolToken);
+      if (m === 'heat_cool')               return rc(heatToken);
+      if (m === 'fan_only' || m === 'off') return rcMuted();
       return rc(arcToken);
     }
 
@@ -568,35 +593,27 @@
       var p = (sp - cfgMin) / (cfgMax - cfgMin);
       return p < 0 ? 0 : p > 1 ? 1 : p;
     }
-
     function redraw() {
       var col = modeColor(curMode);
       curNumEl.style.color = col;
-
       if (isDual) {
-        var pLo = spToPct(dualLow);
-        var pHi = spToPct(dualHigh);
+        var pLo = spToPct(dualLow),  pHi = spToPct(dualHigh);
         var aLo = ARC_START + pLo * ARC_SWEEP;
         var aHi = ARC_START + pHi * ARC_SWEEP;
-
         valueEl.setAttribute('stroke', modeColor('heat'));
         valueEl.setAttribute('d', pLo <= 0 ? '' : arcPath(cx, cy, r, ARC_START, aLo));
-
         value2El.setAttribute('stroke', modeColor('cool'));
         value2El.style.display = '';
         value2El.setAttribute('d', pHi <= pLo ? '' : arcPath(cx, cy, r, aLo, aHi));
-
         spLabelEl.textContent = fmt(dualLow) + '\u00b0\u2013' + fmt(dualHigh) + '\u00b0' + displayUnit;
       } else {
         var pct = spToPct(singleSP);
         var ang = ARC_START + pct * ARC_SWEEP;
-
         valueEl.setAttribute('stroke', col);
         valueEl.setAttribute('d',
           pct <= 0 ? '' :
           pct >= 1 ? arcPath(cx, cy, r, ARC_START, ARC_END - 0.5) :
                      arcPath(cx, cy, r, ARC_START, ang));
-
         value2El.style.display = 'none';
         spLabelEl.textContent  = 'Set ' + fmt(singleSP) + '\u00b0' + displayUnit;
       }
@@ -646,6 +663,16 @@
       if (!w.entity) return;
       handleAction({ type: 'service', service: 'climate.set_hvac_mode',
         data: { entity_id: w.entity, hvac_mode: mode } });
+    }
+    function sendFanMode(fanMode) {
+      if (!w.entity) return;
+      handleAction({ type: 'service', service: 'climate.set_fan_mode',
+        data: { entity_id: w.entity, fan_mode: fanMode } });
+    }
+    function sendSwingMode(swingMode) {
+      if (!w.entity) return;
+      handleAction({ type: 'service', service: 'climate.set_swing_mode',
+        data: { entity_id: w.entity, swing_mode: swingMode } });
     }
 
     /* ------------------------------------------------------------------
