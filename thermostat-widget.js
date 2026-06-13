@@ -1,12 +1,13 @@
 /* ============================================================
-   HAven - Thermostat Widget  v13
+   HAven - Thermostat Widget  v14
 
-   Changes vs v12:
-     - cy: arcZoneH * 0.48 → 0.42  (arc sits higher)
-     - lineWidth default: 12 → 14, cap: 14 → 18  (thicker stroke)
-     - btnSpacing: wW * 0.12 → wW * 0.08  (buttons nudged inward)
-     - diskR recalculated from new lineWidth so glass disk still
-       clears the outer edge of the arc correctly.
+   Changes vs v13:
+     - lineWidth now scales proportionally with widget width:
+         default = wW * 0.018  (e.g. 1024px wide → ~18px stroke)
+         clamp:  min 8px, max 32px
+         override still works: line_width: <number> in widget config
+         is treated as a MULTIPLIER if <= 0.1, otherwise as px.
+     - Pill top-padding now proportional: wH * 0.02
 
    RULE: Never write el.style.left/top/width/height - engine owns those.
    ============================================================ */
@@ -24,13 +25,25 @@
     var cfgStep = isNaN(parseFloat(w.step)) ? 1 : Math.max(0.1, parseFloat(w.step));
     if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    var lineWidth  = Math.min(18, Math.max(4, parseFloat(w.line_width) || 14));
     var bgToken    = w.background || null;
     var arcToken   = w.color       || 'primary';
     var heatToken  = w.heat_color  || 'warning';
     var coolToken  = w.cool_color  || 'primary';
     var lblToken   = w.label_color || 'text_muted';
     var cardRadius = isNaN(parseInt(w.radius, 10)) ? 16 : parseInt(w.radius, 10);
+
+    var wW = w.w, wH = w.h;
+
+    /* lineWidth: scale with widget width unless user overrides */
+    var lineWidth;
+    if (w.line_width !== undefined && w.line_width !== null && w.line_width !== '') {
+      var lw = parseFloat(w.line_width);
+      /* treat values <= 0.1 as a fraction of wW, otherwise absolute px */
+      lineWidth = lw <= 0.1 ? Math.round(wW * lw) : lw;
+    } else {
+      lineWidth = Math.round(wW * 0.018);  /* ~18px at 1024, ~9px at 500 */
+    }
+    lineWidth = Math.min(32, Math.max(8, lineWidth));
 
     /* ------------------------------------------------------------------
        2.  Helpers
@@ -100,28 +113,28 @@
     /* ------------------------------------------------------------------
        3.  Dimensions
     ------------------------------------------------------------------ */
-    var wW = w.w, wH = w.h;
     var pillH    = Math.max(32, Math.round(wH * 0.16));
     var pillGap  = 4;
+    var pillTopPad = Math.round(wH * 0.02);
     var arcZoneH = wH - pillH - pillGap;
     var margin   = lineWidth + 6;
     var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    var cy = arcZoneH * 0.42;           /* v13: raised from 0.48 */
+    var cy = arcZoneH * 0.42;
     var circleBottom = cy + r;
 
-    /* Glass disk — sized to just clear the arc stroke */
+    /* Glass disk */
     var diskR    = r + lineWidth + 10;
     var diskSize = diskR * 2;
     var diskLeft = cx - diskR;
     var diskTop  = cy - diskR;
 
-    /* Button spacing — inward from v12's 0.12 */
+    /* Button spacing */
     var btnSpacing = Math.round(wW * 0.08);
 
     /* ------------------------------------------------------------------
-       4.  Root element — fully transparent, engine-proof
+       4.  Root element
     ------------------------------------------------------------------ */
     el.style.position      = 'absolute';
     el.style.display       = 'flex';
@@ -158,9 +171,7 @@
     ].join(';');
     el.appendChild(arcZone);
 
-    /* ------------------------------------------------------------------
-       5a. Glass disk
-    ------------------------------------------------------------------ */
+    /* Glass disk */
     if (!bgToken) {
       var glassDisk = document.createElement('div');
       glassDisk.style.cssText = [
@@ -182,9 +193,7 @@
       arcZone.appendChild(glassDisk);
     }
 
-    /* ------------------------------------------------------------------
-       SVG  z-index:1
-    ------------------------------------------------------------------ */
+    /* SVG */
     var ns  = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('width',  wW);
@@ -198,47 +207,31 @@
     function makeGlowFilter(id, color, blur, opacity) {
       var filt = document.createElementNS(ns, 'filter');
       filt.setAttribute('id', id);
-      filt.setAttribute('x', '-50%');
-      filt.setAttribute('y', '-50%');
-      filt.setAttribute('width', '200%');
-      filt.setAttribute('height', '200%');
+      filt.setAttribute('x', '-50%'); filt.setAttribute('y', '-50%');
+      filt.setAttribute('width', '200%'); filt.setAttribute('height', '200%');
       filt.setAttribute('color-interpolation-filters', 'sRGB');
-
       var flood = document.createElementNS(ns, 'feFlood');
       flood.setAttribute('flood-color', color);
       flood.setAttribute('flood-opacity', opacity);
       flood.setAttribute('result', 'flood');
-
       var comp = document.createElementNS(ns, 'feComposite');
-      comp.setAttribute('in', 'flood');
-      comp.setAttribute('in2', 'SourceGraphic');
-      comp.setAttribute('operator', 'in');
-      comp.setAttribute('result', 'coloredBlur');
-
+      comp.setAttribute('in', 'flood'); comp.setAttribute('in2', 'SourceGraphic');
+      comp.setAttribute('operator', 'in'); comp.setAttribute('result', 'coloredBlur');
       var gblur = document.createElementNS(ns, 'feGaussianBlur');
-      gblur.setAttribute('in', 'coloredBlur');
-      gblur.setAttribute('stdDeviation', blur);
+      gblur.setAttribute('in', 'coloredBlur'); gblur.setAttribute('stdDeviation', blur);
       gblur.setAttribute('result', 'blurred');
-
       var merge = document.createElementNS(ns, 'feMerge');
-      var n1 = document.createElementNS(ns, 'feMergeNode');
-      n1.setAttribute('in', 'blurred');
-      var n2 = document.createElementNS(ns, 'feMergeNode');
-      n2.setAttribute('in', 'SourceGraphic');
-      merge.appendChild(n1);
-      merge.appendChild(n2);
-
-      filt.appendChild(flood);
-      filt.appendChild(comp);
-      filt.appendChild(gblur);
-      filt.appendChild(merge);
+      var n1 = document.createElementNS(ns, 'feMergeNode'); n1.setAttribute('in', 'blurred');
+      var n2 = document.createElementNS(ns, 'feMergeNode'); n2.setAttribute('in', 'SourceGraphic');
+      merge.appendChild(n1); merge.appendChild(n2);
+      filt.appendChild(flood); filt.appendChild(comp); filt.appendChild(gblur); filt.appendChild(merge);
       defs.appendChild(filt);
       return id;
     }
 
     var filtHeat = makeGlowFilter('therm-glow-heat', rc(heatToken) || '#ff8c42', 6, 0.9);
     var filtCool = makeGlowFilter('therm-glow-cool', rc(coolToken) || '#56cfff', 6, 0.9);
-    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff',                  2, 0.0);
+    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff', 2, 0.0);
 
     function glowFilterForMode(m) {
       if (m === 'off' || m === 'fan_only') return filtOff;
@@ -246,34 +239,31 @@
       return filtCool;
     }
 
-    /* Track */
     var trackEl = document.createElementNS(ns, 'path');
-    trackEl.setAttribute('fill','none');
+    trackEl.setAttribute('fill', 'none');
     trackEl.setAttribute('stroke', 'rgba(255,255,255,0.15)');
     trackEl.setAttribute('stroke-width', lineWidth);
-    trackEl.setAttribute('stroke-linecap','round');
+    trackEl.setAttribute('stroke-linecap', 'round');
     trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
     svg.appendChild(trackEl);
 
-    /* Value arc */
     var valueEl = document.createElementNS(ns, 'path');
-    valueEl.setAttribute('fill','none');
+    valueEl.setAttribute('fill', 'none');
     valueEl.setAttribute('stroke-width', lineWidth);
-    valueEl.setAttribute('stroke-linecap','round');
+    valueEl.setAttribute('stroke-linecap', 'round');
     valueEl.setAttribute('stroke', rc(arcToken));
     svg.appendChild(valueEl);
 
-    /* Secondary arc (heat_cool dual) */
     var value2El = document.createElementNS(ns, 'path');
-    value2El.setAttribute('fill','none');
-    value2El.setAttribute('stroke-width', Math.max(4, Math.round(lineWidth * 0.6)));
-    value2El.setAttribute('stroke-linecap','round');
-    value2El.setAttribute('stroke-dasharray','5 7');
+    value2El.setAttribute('fill', 'none');
+    value2El.setAttribute('stroke-width', Math.max(8, Math.round(lineWidth * 0.7)));
+    value2El.setAttribute('stroke-linecap', 'round');
+    value2El.setAttribute('stroke-dasharray', '5 7');
     value2El.style.display = 'none';
     svg.appendChild(value2El);
 
     /* ------------------------------------------------------------------
-       6.  Centre label overlay  z-index:2
+       6.  Centre label  z-index:2
     ------------------------------------------------------------------ */
     var centreDiv = document.createElement('div');
     centreDiv.style.cssText = [
@@ -282,8 +272,7 @@
       'display:flex','flex-direction:column',
       'align-items:center','justify-content:center',
       'text-align:center','pointer-events:none',
-      'background:transparent',
-      'z-index:2',
+      'background:transparent','z-index:2',
       'padding-bottom:' + Math.round(arcZoneH * 0.10) + 'px'
     ].join(';');
     arcZone.appendChild(centreDiv);
@@ -291,13 +280,10 @@
     var fsModeLabel = Math.max(9, Math.round(wW * 0.075));
     var modeLabelEl = document.createElement('div');
     modeLabelEl.style.cssText = [
-      'font-size:'     + fsModeLabel + 'px',
-      'font-weight:500',
-      'color:'         + rcMuted(),
-      'line-height:1.2',
-      'letter-spacing:0.04em',
-      'text-transform:capitalize',
-      'background:transparent',
+      'font-size:' + fsModeLabel + 'px',
+      'font-weight:500','color:' + rcMuted(),
+      'line-height:1.2','letter-spacing:0.04em',
+      'text-transform:capitalize','background:transparent',
       'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
     modeLabelEl.textContent = 'Off';
@@ -313,10 +299,8 @@
 
     var curNumEl = document.createElement('span');
     curNumEl.style.cssText = [
-      'font-size:'         + fsCur + 'px',
-      'font-weight:700',
-      'letter-spacing:-0.02em',
-      'color:'             + rcText(),
+      'font-size:' + fsCur + 'px','font-weight:700',
+      'letter-spacing:-0.02em','color:' + rcText(),
       'background:transparent',
       'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
@@ -325,12 +309,10 @@
 
     var curUnitEl = document.createElement('span');
     curUnitEl.style.cssText = [
-      'font-size:'   + fsUnit + 'px',
-      'font-weight:600',
-      'color:'       + rcMuted(),
-      'margin-top:'  + Math.round(fsCur * 0.08) + 'px',
-      'margin-left:2px',
-      'background:transparent'
+      'font-size:' + fsUnit + 'px','font-weight:600',
+      'color:' + rcMuted(),
+      'margin-top:' + Math.round(fsCur * 0.08) + 'px',
+      'margin-left:2px','background:transparent'
     ].join(';');
     curUnitEl.textContent = '\u00b0' + displayUnit;
     curWrap.appendChild(curUnitEl);
@@ -339,11 +321,8 @@
     var fsSP = Math.max(8, Math.round(wW * 0.07));
     var spLabelEl = document.createElement('div');
     spLabelEl.style.cssText = [
-      'font-size:'  + fsSP + 'px',
-      'font-weight:500',
-      'color:'      + rcMuted(),
-      'margin-top:3px',
-      'line-height:1',
+      'font-size:' + fsSP + 'px','font-weight:500',
+      'color:' + rcMuted(),'margin-top:3px','line-height:1',
       'background:transparent',
       'transition:color 0.4s ease,text-shadow 0.4s ease'
     ].join(';');
@@ -351,7 +330,7 @@
     centreDiv.appendChild(spLabelEl);
 
     /* ------------------------------------------------------------------
-       7.  +/- buttons  z-index:2
+       7.  +/- buttons
     ------------------------------------------------------------------ */
     var btnSize  = Math.max(22, Math.round(wW * 0.13));
     var btnFS    = Math.max(13, Math.round(btnSize * 0.50));
@@ -366,31 +345,21 @@
       btn.textContent = label;
       btn.style.cssText = [
         'position:absolute',
-        'width:'         + btnSize + 'px',
-        'height:'        + btnSize + 'px',
+        'width:' + btnSize + 'px','height:' + btnSize + 'px',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
         'border:1px solid rgba(255,255,255,0.20)',
         'border-top-color:rgba(255,255,255,0.35)',
         'background:rgba(255,255,255,0.08)',
-        'backdrop-filter:blur(8px)',
-        '-webkit-backdrop-filter:blur(8px)',
+        'backdrop-filter:blur(8px)','-webkit-backdrop-filter:blur(8px)',
         'color:rgba(255,255,255,0.90)',
-        'font-size:'     + btnFS + 'px',
-        'font-family:inherit',
-        'cursor:pointer',
-        'display:flex',
-        'align-items:center',
-        'justify-content:center',
-        'padding:0',
-        'line-height:1',
-        'top:'           + btnY + 'px',
-        'pointer-events:auto',
-        'z-index:2',
+        'font-size:' + btnFS + 'px','font-family:inherit',
+        'cursor:pointer','display:flex','align-items:center',
+        'justify-content:center','padding:0','line-height:1',
+        'top:' + btnY + 'px','pointer-events:auto','z-index:2',
         'transition:opacity 0.15s ease'
       ].join(';');
       btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        onclick();
+        e.stopPropagation(); onclick();
         if (typeof resetReturnTimer === 'function') resetReturnTimer();
       });
       btn.addEventListener('mousedown',  function() { btn.style.opacity = '0.5'; });
@@ -418,11 +387,9 @@
     plusBtnLo.style.left  = plusBtnHi.style.left  = plusBtn.style.left;
     minusBtnLo.style.top  = plusBtnLo.style.top   = dualYLo + 'px';
     minusBtnHi.style.top  = plusBtnHi.style.top   = dualYHi + 'px';
-    [minusBtnLo, plusBtnLo, minusBtnHi, plusBtnHi].forEach(function(b) { b.style.display = 'none'; });
-    arcZone.appendChild(minusBtnLo);
-    arcZone.appendChild(plusBtnLo);
-    arcZone.appendChild(minusBtnHi);
-    arcZone.appendChild(plusBtnHi);
+    [minusBtnLo,plusBtnLo,minusBtnHi,plusBtnHi].forEach(function(b) { b.style.display='none'; });
+    arcZone.appendChild(minusBtnLo); arcZone.appendChild(plusBtnLo);
+    arcZone.appendChild(minusBtnHi); arcZone.appendChild(plusBtnHi);
 
     /* ------------------------------------------------------------------
        8.  Pills zone
@@ -430,14 +397,10 @@
     var pillsZone = document.createElement('div');
     pillsZone.style.cssText = [
       'flex:0 0 ' + pillH + 'px',
-      'display:flex',
-      'flex-direction:row',
-      'align-items:stretch',
+      'display:flex','flex-direction:row','align-items:stretch',
       'gap:' + pillGap + 'px',
-      'padding:0 ' + pillGap + 'px ' + pillGap + 'px ' + pillGap + 'px',
-      'box-sizing:border-box',
-      'width:100%',
-      'background:transparent'
+      'padding:' + pillTopPad + 'px ' + pillGap + 'px ' + pillGap + 'px ' + pillGap + 'px',
+      'box-sizing:border-box','width:100%','background:transparent'
     ].join(';');
     el.appendChild(pillsZone);
 
@@ -449,85 +412,59 @@
       var pill = document.createElement('button');
       pill.type = 'button';
       pill.style.cssText = [
-        'flex:1 1 0',
-        'min-width:0',
+        'flex:1 1 0','min-width:0',
         'border:1px solid rgba(255,255,255,0.12)',
         'border-top-color:rgba(255,255,255,0.24)',
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
         'background:rgba(255,255,255,0.07)',
-        'backdrop-filter:blur(10px)',
-        '-webkit-backdrop-filter:blur(10px)',
+        'backdrop-filter:blur(10px)','-webkit-backdrop-filter:blur(10px)',
         'box-shadow:0 2px 8px rgba(0,0,0,0.18)',
         'color:rgba(255,255,255,0.90)',
-        'display:flex',
-        'flex-direction:row',
-        'align-items:center',
-        'justify-content:flex-start',
-        'gap:4px',
-        'padding:0 6px',
-        'box-sizing:border-box',
-        'cursor:pointer',
-        'font-family:inherit',
-        'overflow:hidden',
-        'transition:opacity 0.15s ease'
+        'display:flex','flex-direction:row','align-items:center',
+        'justify-content:flex-start','gap:4px','padding:0 6px',
+        'box-sizing:border-box','cursor:pointer','font-family:inherit',
+        'overflow:hidden','transition:opacity 0.15s ease'
       ].join(';');
 
       var iconSpan = document.createElement('span');
       setContent(iconSpan, iconStr);
       iconSpan.style.cssText = [
-        'font-size:' + pillIconFS + 'px',
-        'flex:0 0 auto',
-        'color:rgba(255,255,255,0.55)',
-        'background:transparent'
+        'font-size:' + pillIconFS + 'px','flex:0 0 auto',
+        'color:rgba(255,255,255,0.55)','background:transparent'
       ].join(';');
       pill.appendChild(iconSpan);
 
       var txtWrap = document.createElement('div');
-      txtWrap.style.cssText = [
-        'display:flex','flex-direction:column',
-        'align-items:flex-start','min-width:0',
-        'background:transparent'
-      ].join(';');
+      txtWrap.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;min-width:0;background:transparent;';
 
       var line1 = document.createElement('span');
       line1.style.cssText = [
-        'font-size:'    + pillFS1 + 'px',
-        'font-weight:400',
-        'color:rgba(255,255,255,0.45)',
-        'line-height:1.1',
-        'white-space:nowrap',
-        'overflow:hidden',
-        'text-overflow:ellipsis',
-        'max-width:100%',
-        'background:transparent'
+        'font-size:' + pillFS1 + 'px','font-weight:400',
+        'color:rgba(255,255,255,0.45)','line-height:1.1',
+        'white-space:nowrap','overflow:hidden','text-overflow:ellipsis',
+        'max-width:100%','background:transparent'
       ].join(';');
       line1.textContent = topText;
 
       var line2 = document.createElement('span');
       line2.style.cssText = [
-        'font-size:'    + pillFS2 + 'px',
-        'font-weight:600',
-        'color:rgba(255,255,255,0.88)',
-        'line-height:1.1',
-        'white-space:nowrap',
-        'overflow:hidden',
-        'text-overflow:ellipsis',
-        'max-width:100%',
-        'background:transparent'
+        'font-size:' + pillFS2 + 'px','font-weight:600',
+        'color:rgba(255,255,255,0.88)','line-height:1.1',
+        'white-space:nowrap','overflow:hidden','text-overflow:ellipsis',
+        'max-width:100%','background:transparent'
       ].join(';');
       line2.textContent = bottomText;
 
-      txtWrap.appendChild(line1);
-      txtWrap.appendChild(line2);
+      txtWrap.appendChild(line1); txtWrap.appendChild(line2);
       pill.appendChild(txtWrap);
 
-      pill.addEventListener('mousedown',  function() { pill.style.opacity = '0.6'; });
-      pill.addEventListener('mouseup',    function() { pill.style.opacity = '1'; });
-      pill.addEventListener('mouseleave', function() { pill.style.opacity = '1'; });
-      pill.addEventListener('touchstart', function() { pill.style.opacity = '0.6'; }, { passive: true });
-      pill.addEventListener('touchend',   function() { pill.style.opacity = '1'; });
+      pill.addEventListener('mousedown',  function() { pill.style.opacity='0.6'; });
+      pill.addEventListener('mouseup',    function() { pill.style.opacity='1'; });
+      pill.addEventListener('mouseleave', function() { pill.style.opacity='1'; });
+      pill.addEventListener('touchstart', function() { pill.style.opacity='0.6'; }, { passive:true });
+      pill.addEventListener('touchend',   function() { pill.style.opacity='1'; });
 
-      return { pill: pill, icon: iconSpan, line1: line1, line2: line2 };
+      return { pill:pill, icon:iconSpan, line1:line1, line2:line2 };
     }
 
     var modePill  = makePill('[mdi:power]',                'Mode',       'Off');
@@ -538,14 +475,11 @@
     /* ------------------------------------------------------------------
        Picker overlay
     ------------------------------------------------------------------ */
-    var activeOverlay  = null;
-    var activeCloseExt = null;
+    var activeOverlay = null, activeCloseExt = null;
 
     function closeActiveOverlay() {
-      if (activeOverlay && activeOverlay.parentNode)
-        activeOverlay.parentNode.removeChild(activeOverlay);
-      if (activeCloseExt)
-        document.removeEventListener('click', activeCloseExt);
+      if (activeOverlay && activeOverlay.parentNode) activeOverlay.parentNode.removeChild(activeOverlay);
+      if (activeCloseExt) document.removeEventListener('click', activeCloseExt);
       activeOverlay = null; activeCloseExt = null;
     }
 
@@ -555,21 +489,14 @@
       overlay.style.cssText = [
         'position:absolute',
         'bottom:' + (pillH + pillGap) + 'px',
-        'left:'   + pillGap + 'px',
-        'right:'  + pillGap + 'px',
+        'left:' + pillGap + 'px','right:' + pillGap + 'px',
         'background:rgba(20,20,24,0.82)',
-        'backdrop-filter:blur(20px)',
-        '-webkit-backdrop-filter:blur(20px)',
+        'backdrop-filter:blur(20px)','-webkit-backdrop-filter:blur(20px)',
         'border:1px solid rgba(255,255,255,0.12)',
         'border-top-color:rgba(255,255,255,0.22)',
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
-        'padding:6px',
-        'display:flex',
-        'flex-wrap:wrap',
-        'gap:4px',
-        'justify-content:center',
-        'box-shadow:0 8px 32px rgba(0,0,0,0.45)',
-        'z-index:10'
+        'padding:6px','display:flex','flex-wrap:wrap','gap:4px',
+        'justify-content:center','box-shadow:0 8px 32px rgba(0,0,0,0.45)','z-index:10'
       ].join(';');
 
       var chipH  = Math.max(20, Math.round(pillH * 0.70));
@@ -580,31 +507,21 @@
         chip.type = 'button';
         chip.style.cssText = [
           'border:1px solid rgba(255,255,255,0.14)',
-          'border-radius:' + Math.round(chipH / 2) + 'px',
-          'height:'        + chipH + 'px',
-          'padding:0 8px',
-          'background:rgba(255,255,255,0.08)',
-          'color:rgba(255,255,255,0.88)',
-          'font-size:'     + chipFS + 'px',
-          'font-family:inherit',
-          'cursor:pointer',
-          'display:flex',
-          'align-items:center',
-          'gap:4px'
+          'border-radius:' + Math.round(chipH/2) + 'px',
+          'height:' + chipH + 'px','padding:0 8px',
+          'background:rgba(255,255,255,0.08)','color:rgba(255,255,255,0.88)',
+          'font-size:' + chipFS + 'px','font-family:inherit',
+          'cursor:pointer','display:flex','align-items:center','gap:4px'
         ].join(';');
         if (opt.icon) {
           var ic = document.createElement('span');
-          setContent(ic, opt.icon);
-          ic.style.fontSize = chipFS + 'px';
+          setContent(ic, opt.icon); ic.style.fontSize = chipFS + 'px';
           chip.appendChild(ic);
         }
-        var tx = document.createElement('span');
-        tx.textContent = opt.label;
+        var tx = document.createElement('span'); tx.textContent = opt.label;
         chip.appendChild(tx);
         chip.addEventListener('click', function(e) {
-          e.stopPropagation();
-          onSelect(opt.value);
-          closeActiveOverlay();
+          e.stopPropagation(); onSelect(opt.value); closeActiveOverlay();
           if (typeof resetReturnTimer === 'function') resetReturnTimer();
         });
         overlay.appendChild(chip);
@@ -618,53 +535,53 @@
       }, 0);
     }
 
-    var HVAC_ICONS  = { heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
-                        auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
-                        fan_only:'[mdi:fan]', off:'[mdi:power]' };
-    var HVAC_LABELS = { heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool', auto:'Auto',
-                        dry:'Dry', fan_only:'Fan', off:'Off' };
+    var HVAC_ICONS  = { heat:'[mdi:fire]',cool:'[mdi:snowflake]',heat_cool:'[mdi:autorenew]',
+                        auto:'[mdi:thermostat-auto]',dry:'[mdi:water-percent]',
+                        fan_only:'[mdi:fan]',off:'[mdi:power]' };
+    var HVAC_LABELS = { heat:'Heat',cool:'Cool',heat_cool:'Heat/Cool',auto:'Auto',
+                        dry:'Dry',fan_only:'Fan',off:'Off' };
     var DEFAULT_HVAC = ['auto','heat','cool','heat_cool','dry','fan_only','off'];
 
     modePill.pill.addEventListener('click', function(e) {
       e.stopPropagation();
-      var avail = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
+      var avail = (latestState&&latestState.attributes&&latestState.attributes.hvac_modes)
         ? latestState.attributes.hvac_modes : DEFAULT_HVAC;
       makeListPicker(avail.map(function(m) {
-        return { value:m, label:HVAC_LABELS[m]||m, icon:HVAC_ICONS[m]||'[mdi:thermostat]' };
+        return { value:m,label:HVAC_LABELS[m]||m,icon:HVAC_ICONS[m]||'[mdi:thermostat]' };
       }), function(mode) { sendMode(mode); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
-    var FAN_ICONS  = { auto:'[mdi:fan-auto]', low:'[mdi:fan-speed-1]', medium:'[mdi:fan-speed-2]',
-                       high:'[mdi:fan-speed-3]', medium_high:'[mdi:fan-speed-3]',
-                       quiet:'[mdi:fan-off]', 'on':'[mdi:fan]', 'off':'[mdi:fan-off]' };
-    var FAN_LABELS = { auto:'Auto', low:'Low', medium:'Medium', high:'High',
-                       medium_high:'Med-High', quiet:'Quiet', 'on':'On', 'off':'Off' };
+    var FAN_ICONS  = { auto:'[mdi:fan-auto]',low:'[mdi:fan-speed-1]',medium:'[mdi:fan-speed-2]',
+                       high:'[mdi:fan-speed-3]',medium_high:'[mdi:fan-speed-3]',
+                       quiet:'[mdi:fan-off]','on':'[mdi:fan]','off':'[mdi:fan-off]' };
+    var FAN_LABELS = { auto:'Auto',low:'Low',medium:'Medium',high:'High',
+                       medium_high:'Med-High',quiet:'Quiet','on':'On','off':'Off' };
     var DEFAULT_FAN = ['auto','low','medium','high','off'];
 
     fanPill.pill.addEventListener('click', function(e) {
       e.stopPropagation();
-      var avail = (latestState && latestState.attributes && latestState.attributes.fan_modes)
+      var avail = (latestState&&latestState.attributes&&latestState.attributes.fan_modes)
         ? latestState.attributes.fan_modes : DEFAULT_FAN;
       makeListPicker(avail.map(function(f) {
-        return { value:f, label:FAN_LABELS[f]||f, icon:FAN_ICONS[f]||'[mdi:fan]' };
+        return { value:f,label:FAN_LABELS[f]||f,icon:FAN_ICONS[f]||'[mdi:fan]' };
       }), function(fm) { sendFanMode(fm); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
-    var SWING_ICONS  = { 'off':'[mdi:arrow-collapse-vertical]', both:'[mdi:arrow-split-vertical]',
-                          vertical:'[mdi:arrow-up-down]', horizontal:'[mdi:arrow-left-right]',
+    var SWING_ICONS  = { 'off':'[mdi:arrow-collapse-vertical]',both:'[mdi:arrow-split-vertical]',
+                          vertical:'[mdi:arrow-up-down]',horizontal:'[mdi:arrow-left-right]',
                           upper:'[mdi:arrow-up]' };
-    var SWING_LABELS = { 'off':'Off', both:'Both', vertical:'Vertical',
-                          horizontal:'Horizontal', upper:'Upper' };
+    var SWING_LABELS = { 'off':'Off',both:'Both',vertical:'Vertical',
+                          horizontal:'Horizontal',upper:'Upper' };
     var DEFAULT_SWING = ['off','vertical','horizontal','both'];
 
     swingPill.pill.addEventListener('click', function(e) {
       e.stopPropagation();
-      var avail = (latestState && latestState.attributes && latestState.attributes.swing_modes)
+      var avail = (latestState&&latestState.attributes&&latestState.attributes.swing_modes)
         ? latestState.attributes.swing_modes : DEFAULT_SWING;
       makeListPicker(avail.map(function(s) {
-        return { value:s, label:SWING_LABELS[s]||s, icon:SWING_ICONS[s]||'[mdi:arrow-split-vertical]' };
+        return { value:s,label:SWING_LABELS[s]||s,icon:SWING_ICONS[s]||'[mdi:arrow-split-vertical]' };
       }), function(sm) { sendSwingMode(sm); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
@@ -679,15 +596,15 @@
     var curMode  = 'off';
 
     function modeColor(m) {
-      if (m === 'heat' || m === 'dry')     return rc(heatToken);
-      if (m === 'cool' || m === 'auto')    return rc(coolToken);
-      if (m === 'heat_cool')               return rc(heatToken);
-      if (m === 'fan_only' || m === 'off') return rcMuted();
+      if (m==='heat'||m==='dry')         return rc(heatToken);
+      if (m==='cool'||m==='auto')        return rc(coolToken);
+      if (m==='heat_cool')               return rc(heatToken);
+      if (m==='fan_only'||m==='off')     return rcMuted();
       return rc(arcToken);
     }
 
     function glowShadow(color) {
-      return '0 0 8px ' + color + ',0 0 18px ' + color + ',0 0 32px ' + color;
+      return '0 0 8px '+color+',0 0 18px '+color+',0 0 32px '+color;
     }
 
     function spToPct(sp) {
@@ -710,88 +627,75 @@
       modeLabelEl.style.textShadow = isActive ? glowShadow(col) : 'none';
 
       spLabelEl.style.color      = isActive ? 'rgba(255,255,255,0.75)' : rcMuted();
-      spLabelEl.style.textShadow = isActive
-        ? '0 0 6px ' + col + ',0 0 14px ' + col : 'none';
+      spLabelEl.style.textShadow = isActive ? '0 0 6px '+col+',0 0 14px '+col : 'none';
 
       if (isDual) {
         var pLo = spToPct(dualLow), pHi = spToPct(dualHigh);
         var aLo = ARC_START + pLo * ARC_SWEEP;
         var aHi = ARC_START + pHi * ARC_SWEEP;
-        var heatCol = modeColor('heat');
-        var coolCol = modeColor('cool');
-        valueEl.setAttribute('stroke', heatCol);
-        valueEl.setAttribute('filter', 'url(#' + filtHeat + ')');
-        valueEl.setAttribute('d', pLo <= 0 ? '' : arcPath(cx, cy, r, ARC_START, aLo));
-        value2El.setAttribute('stroke', coolCol);
-        value2El.setAttribute('filter', 'url(#' + filtCool + ')');
+        valueEl.setAttribute('stroke', modeColor('heat'));
+        valueEl.setAttribute('filter', 'url(#'+filtHeat+')');
+        valueEl.setAttribute('d', pLo<=0 ? '' : arcPath(cx,cy,r,ARC_START,aLo));
+        value2El.setAttribute('stroke', modeColor('cool'));
+        value2El.setAttribute('filter', 'url(#'+filtCool+')');
         value2El.style.display = '';
-        value2El.setAttribute('d', pHi <= pLo ? '' : arcPath(cx, cy, r, aLo, aHi));
-        spLabelEl.textContent = fmt(dualLow) + '\u00b0\u2013' + fmt(dualHigh) + '\u00b0' + displayUnit;
+        value2El.setAttribute('d', pHi<=pLo ? '' : arcPath(cx,cy,r,aLo,aHi));
+        spLabelEl.textContent = fmt(dualLow)+'\u00b0\u2013'+fmt(dualHigh)+'\u00b0'+displayUnit;
       } else {
         var pct = spToPct(singleSP);
         var ang = ARC_START + pct * ARC_SWEEP;
         valueEl.setAttribute('d',
-          pct <= 0 ? '' :
-          pct >= 1 ? arcPath(cx, cy, r, ARC_START, ARC_END - 0.5) :
-                     arcPath(cx, cy, r, ARC_START, ang));
+          pct<=0 ? '' :
+          pct>=1 ? arcPath(cx,cy,r,ARC_START,ARC_END-0.5) :
+                   arcPath(cx,cy,r,ARC_START,ang));
         value2El.style.display = 'none';
-        spLabelEl.textContent  = 'Set ' + fmt(singleSP) + '\u00b0' + displayUnit;
+        spLabelEl.textContent  = 'Set '+fmt(singleSP)+'\u00b0'+displayUnit;
       }
     }
 
-    function adjustSetpoint(delta) {
-      singleSP = clamp(singleSP + delta); redraw(); sendSingleTemp();
-    }
-    function adjustDualLow(delta) {
-      dualLow = clamp(dualLow + delta);
-      if (dualLow >= dualHigh) dualLow = clamp(dualHigh - cfgStep);
-      redraw(); sendDualTemp();
-    }
-    function adjustDualHigh(delta) {
-      dualHigh = clamp(dualHigh + delta);
-      if (dualHigh <= dualLow) dualHigh = clamp(dualLow + cfgStep);
-      redraw(); sendDualTemp();
-    }
+    function adjustSetpoint(delta)  { singleSP=clamp(singleSP+delta); redraw(); sendSingleTemp(); }
+    function adjustDualLow(delta)   { dualLow=clamp(dualLow+delta); if(dualLow>=dualHigh) dualLow=clamp(dualHigh-cfgStep); redraw(); sendDualTemp(); }
+    function adjustDualHigh(delta)  { dualHigh=clamp(dualHigh+delta); if(dualHigh<=dualLow) dualHigh=clamp(dualLow+cfgStep); redraw(); sendDualTemp(); }
 
     function sendSingleTemp() {
       if (!w.entity) return;
       var eu = getEU(latestState);
-      handleAction({ type:'service', service:'climate.set_temperature',
-        data:{ entity_id:w.entity, temperature: Math.round(toEU(singleSP,eu)*2)/2 } });
+      handleAction({ type:'service',service:'climate.set_temperature',
+        data:{ entity_id:w.entity, temperature:Math.round(toEU(singleSP,eu)*2)/2 } });
     }
     function sendDualTemp() {
       if (!w.entity) return;
       var eu = getEU(latestState);
-      handleAction({ type:'service', service:'climate.set_temperature',
+      handleAction({ type:'service',service:'climate.set_temperature',
         data:{ entity_id:w.entity,
-          target_temp_low:  Math.round(toEU(dualLow, eu)*2)/2,
-          target_temp_high: Math.round(toEU(dualHigh,eu)*2)/2 } });
+          target_temp_low:Math.round(toEU(dualLow,eu)*2)/2,
+          target_temp_high:Math.round(toEU(dualHigh,eu)*2)/2 } });
     }
     function sendMode(mode) {
       if (!w.entity) return;
-      handleAction({ type:'service', service:'climate.set_hvac_mode',
+      handleAction({ type:'service',service:'climate.set_hvac_mode',
         data:{ entity_id:w.entity, hvac_mode:mode } });
     }
     function sendFanMode(fm) {
       if (!w.entity) return;
-      handleAction({ type:'service', service:'climate.set_fan_mode',
+      handleAction({ type:'service',service:'climate.set_fan_mode',
         data:{ entity_id:w.entity, fan_mode:fm } });
     }
     function sendSwingMode(sm) {
       if (!w.entity) return;
-      handleAction({ type:'service', service:'climate.set_swing_mode',
+      handleAction({ type:'service',service:'climate.set_swing_mode',
         data:{ entity_id:w.entity, swing_mode:sm } });
     }
 
-    var LABELS_MODE  = { heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool', auto:'Auto',
-                         dry:'Dry', fan_only:'Fan', off:'Off' };
-    var LABELS_FAN   = { auto:'Auto', low:'Low', medium:'Med', high:'High',
-                         medium_high:'Med-Hi', quiet:'Quiet', 'on':'On', 'off':'Off' };
-    var LABELS_SWING = { 'off':'Off', both:'Both', vertical:'Vertical',
-                         horizontal:'Horizontal', upper:'Upper' };
-    var ICONS_MODE   = { heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
-                         auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
-                         fan_only:'[mdi:fan]', off:'[mdi:power]' };
+    var LABELS_MODE  = { heat:'Heat',cool:'Cool',heat_cool:'Heat/Cool',auto:'Auto',
+                         dry:'Dry',fan_only:'Fan',off:'Off' };
+    var LABELS_FAN   = { auto:'Auto',low:'Low',medium:'Med',high:'High',
+                         medium_high:'Med-Hi',quiet:'Quiet','on':'On','off':'Off' };
+    var LABELS_SWING = { 'off':'Off',both:'Both',vertical:'Vertical',
+                          horizontal:'Horizontal',upper:'Upper' };
+    var ICONS_MODE   = { heat:'[mdi:fire]',cool:'[mdi:snowflake]',heat_cool:'[mdi:autorenew]',
+                         auto:'[mdi:thermostat-auto]',dry:'[mdi:water-percent]',
+                         fan_only:'[mdi:fan]',off:'[mdi:power]' };
 
     function applyState(state) {
       if (!state) return;
@@ -807,12 +711,12 @@
       modePill.line2.textContent = modeStr;
       setContent(modePill.icon, ICONS_MODE[curMode] || '[mdi:thermostat]');
 
-      fanPill.line2.textContent   = LABELS_FAN[String(attrs.fan_mode   || attrs.fan_speed || 'auto').toLowerCase()] || String(attrs.fan_mode || 'auto');
-      swingPill.line2.textContent = LABELS_SWING[String(attrs.swing_mode || 'off').toLowerCase()] || String(attrs.swing_mode || 'off');
+      fanPill.line2.textContent   = LABELS_FAN[String(attrs.fan_mode||attrs.fan_speed||'auto').toLowerCase()] || String(attrs.fan_mode||'auto');
+      swingPill.line2.textContent = LABELS_SWING[String(attrs.swing_mode||'off').toLowerCase()] || String(attrs.swing_mode||'off');
 
-      var newDual = curMode === 'heat_cool' &&
-                    attrs.target_temp_low  !== undefined &&
-                    attrs.target_temp_high !== undefined;
+      var newDual = curMode==='heat_cool' &&
+                    attrs.target_temp_low!==undefined &&
+                    attrs.target_temp_high!==undefined;
       if (newDual !== isDual) {
         isDual = newDual;
         minusBtn.style.display = plusBtn.style.display = isDual ? 'none' : 'flex';
@@ -835,8 +739,7 @@
 
     if (w.entity) {
       registerEntityCallback(w.entity, function(state) {
-        latestState = state;
-        applyState(state);
+        latestState = state; applyState(state);
       });
       if (latestState) applyState(latestState);
     }
