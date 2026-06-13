@@ -1,13 +1,11 @@
 /* ============================================================
-   HAven - Thermostat Widget  v7
+   HAven - Thermostat Widget  v8
 
-   Changes vs v6:
-     btnY offset  : buttons shifted down by +5% of arcZoneH so they
-                    sit in the gap rather than riding the arc bottom.
-     Fan pill     : click opens fan_mode picker (climate.set_fan_mode)
-     Swing pill   : click opens swing_mode picker (climate.set_swing_mode)
-     Generic picker helper makeListPicker() replaces duplicated overlay
-                    logic for mode / fan / swing pickers.
+   Changes vs v7:
+     cy multiplier  : 0.42 → 0.48   (arc moves down slightly)
+     background     : transparent   (blends with dashboard)
+     borderRadius   : removed       (no card border on transparent bg)
+     cardRadius cfg : still honoured if bg is set explicitly
 
    RULE: Never write el.style.left/top/width/height – engine owns those.
    ============================================================ */
@@ -26,7 +24,8 @@
     if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
     var lineWidth  = Math.min(14, Math.max(4, parseFloat(w.line_width) || 12));
-    var bgToken    = w.background  || 'surface';
+    /* background: only paint if explicitly set, otherwise transparent */
+    var bgToken    = w.background || null;
     var arcToken   = w.color       || 'primary';
     var heatToken  = w.heat_color  || 'warning';
     var coolToken  = w.cool_color  || 'primary';
@@ -121,7 +120,8 @@
     var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
     if (r < 12) r = 12;
     var cx = wW / 2;
-    var cy = arcZoneH * 0.42;
+    /* 0.48: arc sits slightly lower than v7 (was 0.42) */
+    var cy = arcZoneH * 0.48;
 
     var circleBottom = cy + r;
 
@@ -133,9 +133,15 @@
     el.style.display       = 'flex';
     el.style.flexDirection = 'column';
     el.style.boxSizing     = 'border-box';
-    el.style.background    = rc(bgToken);
-    el.style.borderRadius  = cardRadius + 'px';
     el.style.userSelect    = 'none';
+    /* transparent unless w.background is explicitly provided */
+    if (bgToken) {
+      el.style.background   = rc(bgToken);
+      el.style.borderRadius = cardRadius + 'px';
+    } else {
+      el.style.background   = 'transparent';
+      el.style.borderRadius = '0';
+    }
 
     /* ------------------------------------------------------------------
        5.  Arc zone
@@ -248,13 +254,11 @@
 
     /* ------------------------------------------------------------------
        7.  ± buttons
-         btnY: centre on circleBottom, then nudge down 5% of arcZoneH
-         so they sit in the open gap of the horseshoe.
     ------------------------------------------------------------------ */
     var btnSize    = Math.max(22, Math.round(wW * 0.13));
     var btnFS      = Math.max(13, Math.round(btnSize * 0.50));
     var btnSpacing = Math.round(wW * 0.12);
-    var btnNudge   = Math.round(arcZoneH * 0.05);   /* gentle downward push */
+    var btnNudge   = Math.round(arcZoneH * 0.05);
     var btnY = Math.round(circleBottom - btnSize * 0.5) + btnNudge;
     if (btnY + btnSize > arcZoneH - 2) btnY = arcZoneH - btnSize - 2;
     if (btnY < 2) btnY = 2;
@@ -421,11 +425,9 @@
 
     /* ------------------------------------------------------------------
        Generic list-picker overlay
-       options : [{ value, label, icon }]
-       onSelect: function(value)
     ------------------------------------------------------------------ */
-    var activeOverlay    = null;
-    var activeCloseExt   = null;
+    var activeOverlay  = null;
+    var activeCloseExt = null;
 
     function closeActiveOverlay() {
       if (activeOverlay && activeOverlay.parentNode)
@@ -438,14 +440,15 @@
 
     function makeListPicker(options, onSelect) {
       closeActiveOverlay();
-
       var overlay = document.createElement('div');
+      /* picker always gets a solid bg so it reads on any dashboard colour */
+      var overlayBg = bgToken ? rc(bgToken) : (rc('surface') || 'rgba(30,30,30,0.96)');
       overlay.style.cssText = [
         'position:absolute',
         'bottom:' + (pillH + pillGap) + 'px',
         'left:'   + pillGap + 'px',
         'right:'  + pillGap + 'px',
-        'background:'    + rc(bgToken),
+        'background:'    + overlayBg,
         'border-radius:' + Math.round(pillH * 0.3) + 'px',
         'padding:6px',
         'display:flex',
@@ -516,10 +519,9 @@
       e.stopPropagation();
       var avail = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
         ? latestState.attributes.hvac_modes : DEFAULT_HVAC;
-      var opts = avail.map(function(m) {
+      makeListPicker(avail.map(function(m) {
         return { value: m, label: HVAC_LABELS[m] || m, icon: HVAC_ICONS[m] || '[mdi:thermostat]' };
-      });
-      makeListPicker(opts, function(mode) { sendMode(mode); });
+      }), function(mode) { sendMode(mode); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
@@ -538,10 +540,9 @@
       e.stopPropagation();
       var avail = (latestState && latestState.attributes && latestState.attributes.fan_modes)
         ? latestState.attributes.fan_modes : DEFAULT_FAN;
-      var opts = avail.map(function(f) {
+      makeListPicker(avail.map(function(f) {
         return { value: f, label: FAN_LABELS[f] || f, icon: FAN_ICONS[f] || '[mdi:fan]' };
-      });
-      makeListPicker(opts, function(fanMode) { sendFanMode(fanMode); });
+      }), function(fanMode) { sendFanMode(fanMode); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
@@ -559,10 +560,9 @@
       e.stopPropagation();
       var avail = (latestState && latestState.attributes && latestState.attributes.swing_modes)
         ? latestState.attributes.swing_modes : DEFAULT_SWING;
-      var opts = avail.map(function(s) {
+      makeListPicker(avail.map(function(s) {
         return { value: s, label: SWING_LABELS[s] || s, icon: SWING_ICONS[s] || '[mdi:arrow-split-vertical]' };
-      });
-      makeListPicker(opts, function(swingMode) { sendSwingMode(swingMode); });
+      }), function(swingMode) { sendSwingMode(swingMode); });
       if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
