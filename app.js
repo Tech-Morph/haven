@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    HAven - app.js
    Pure vanilla JS, ES5-compatible for maximum browser support.
    No frameworks, no build tools, no dependencies.
@@ -998,6 +998,8 @@
       case 'camera':       renderCamera(contentEl, w);       break;
       case 'arc':          renderArc(contentEl, w);          break;
       case 'agenda':       renderAgenda(contentEl, w);       break;
+      case 'package_tracker': renderPackageTracker(contentEl, w); break;
+      case 'mail_summary':  renderMailSummary(contentEl, w);   break;
       case 'tasks':        renderTasks(contentEl, w);        break;
       case 'history_chart':    renderHistoryChart(contentEl, w);    break;
       case 'weather_forecast': renderWeatherForecast(contentEl, w); break;
@@ -2625,7 +2627,7 @@
     var markerAttrName = w.marker_attribute || null;
     var startAngle    = w.start_angle !== undefined ? w.start_angle : 135;
     var endAngle      = w.end_angle   !== undefined ? w.end_angle   : 405;
-    var lineWidth     = w.line_width  !== undefined ? w.line_width  : 12;
+    var lineWidth = Math.min(18, Math.max(4, parseFloat(w.line_width) || 14));
     var trackColor    = resolveColor(w.background || 'surface2');
 
     // SVG coordinate system: cx/cy at centre, r fits inside widget
@@ -5389,305 +5391,1333 @@
     wsSend({ id: id, type: 'auth/sign_path', path: path, expires: expires || 20 });
     return id;
   }
+
   function renderThermostat(el, w) {
-    el.className += ' widget-thermostat';
-    el.style.overflow = 'visible';
 
-    var min  = (w.min  !== undefined) ? parseFloat(w.min)  : 10;
-    var max  = (w.max  !== undefined) ? parseFloat(w.max)  : 35;
-    var step = (w.step !== undefined) ? parseFloat(w.step) : 0.5;
-    if (isNaN(min))  min  = 10;
-    if (isNaN(max))  max  = 35;
-    if (isNaN(step) || step <= 0) step = 0.5;
-    if (max <= min)  max  = min + 1;
+    /* ------------------------------------------------------------------
+       1.  Config
+    ------------------------------------------------------------------ */
+    var displayUnit = String(w.unit || 'F').toUpperCase() === 'C' ? 'C' : 'F';
+    var defMin  = displayUnit === 'C' ? 18 : 64;
+    var defMax  = displayUnit === 'C' ? 32 : 90;
+    var cfgMin  = isNaN(parseFloat(w.min))  ? defMin  : parseFloat(w.min);
+    var cfgMax  = isNaN(parseFloat(w.max))  ? defMax  : parseFloat(w.max);
+    var cfgStep = isNaN(parseFloat(w.step)) ? 1 : Math.max(0.1, parseFloat(w.step));
+    if (cfgMax <= cfgMin) cfgMax = cfgMin + cfgStep;
 
-    var valueAttr   = w.value_attribute   || 'temperature';
-    var currentAttr = w.current_attribute || 'current_temperature';
-    var modeAttr    = w.mode_attribute    || 'hvac_action';
-    var unit        = (w.unit !== undefined) ? String(w.unit) : '\u00b0';
-    var stepDp      = (String(step).indexOf('.') !== -1) ? String(step).split('.')[1].length : 0;
+    var lineWidth  = Math.min(18, Math.max(4, parseFloat(w.line_width) || 14));
+    var bgToken    = w.background || null;
+    var arcToken   = w.color       || 'primary';
+    var heatToken  = w.heat_color  || 'warning';
+    var coolToken  = w.cool_color  || 'primary';
+    var lblToken   = w.label_color || 'text_muted';
+    var cardRadius = isNaN(parseInt(w.radius, 10)) ? 16 : parseInt(w.radius, 10);
 
-    var startAngle = 225;
-    var endAngle   = 495;
-
-    var arcColor   = resolveColor(w.color       || 'primary');
-    var trackColor = resolveColor(w.background  || 'surface2');
-    var labelColor = resolveColor(w.label_color || 'text_muted');
-
-    var size    = Math.min(w.w, w.h);
-    var cx      = w.w / 2;
-    var cy      = w.h / 2;
-    var lw      = Math.max(6, Math.round(size * 0.065));
-    var r       = (size / 2) - lw - 4;
-    var btnSize = Math.max(28, Math.round(size * 0.18));
-    var ns      = 'http://www.w3.org/2000/svg';
-
-    var svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('width',  w.w);
-    svg.setAttribute('height', w.h);
-    svg.style.cssText = 'position:absolute;top:0;left:0;overflow:visible;pointer-events:none;';
-
-    var trackPath = document.createElementNS(ns, 'path');
-    trackPath.setAttribute('fill',           'none');
-    trackPath.setAttribute('stroke',         trackColor);
-    trackPath.setAttribute('stroke-width',   lw);
-    trackPath.setAttribute('stroke-linecap', 'round');
-    trackPath.setAttribute('d', describeArc(cx, cy, r, startAngle, endAngle));
-    svg.appendChild(trackPath);
-
-    var valuePath = document.createElementNS(ns, 'path');
-    valuePath.setAttribute('fill',           'none');
-    valuePath.setAttribute('stroke',         arcColor);
-    valuePath.setAttribute('stroke-width',   lw);
-    valuePath.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(valuePath);
-
-    var tickPath = document.createElementNS(ns, 'path');
-    tickPath.setAttribute('fill',           'none');
-    tickPath.setAttribute('stroke',         arcColor);
-    tickPath.setAttribute('stroke-width',   Math.max(2, Math.round(lw * 0.35)));
-    tickPath.setAttribute('stroke-linecap', 'round');
-    tickPath.style.display = 'none';
-    svg.appendChild(tickPath);
-
-    el.appendChild(svg);
-
-    var centre = document.createElement('div');
-    centre.className = 'thermostat-centre';
-    centre.style.cssText = [
-      'position:absolute', 'top:0', 'left:0',
-      'width:'  + w.w + 'px',
-      'height:' + w.h + 'px',
-      'display:flex', 'flex-direction:column',
-      'align-items:center', 'justify-content:center',
-      'pointer-events:none', 'user-select:none',
-      'margin-top:-' + Math.round(size * 0.06) + 'px'
-    ].join(';');
-
-    var currentEl = document.createElement('div');
-    currentEl.className = 'thermostat-current';
-    currentEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.105) + 'px',
-      'color:' + labelColor,
-      'line-height:1.1'
-    ].join(';');
-    currentEl.textContent = '';
-    centre.appendChild(currentEl);
-
-    var targetEl = document.createElement('div');
-    targetEl.className = 'thermostat-target';
-    targetEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.23) + 'px',
-      'font-weight:700',
-      'color:' + arcColor,
-      'line-height:1',
-      'letter-spacing:-0.02em'
-    ].join(';');
-    targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
-    centre.appendChild(targetEl);
-
-    var modeEl = document.createElement('div');
-    modeEl.className = 'thermostat-mode';
-    modeEl.style.cssText = [
-      'font-size:' + Math.round(size * 0.075) + 'px',
-      'color:' + labelColor,
-      'margin-top:' + Math.round(size * 0.025) + 'px',
-      'letter-spacing:0.02em',
-      'text-transform:uppercase'
-    ].join(';');
-    modeEl.textContent = '';
-    centre.appendChild(modeEl);
-
-    el.appendChild(centre);
-
-    function arcTerminus(angleDeg) {
-      var rad = (angleDeg - 90) * Math.PI / 180;
-      return {
-        x: cx + r * Math.cos(rad),
-        y: cy + r * Math.sin(rad)
-      };
+    /* ------------------------------------------------------------------
+       2.  Helpers
+    ------------------------------------------------------------------ */
+    function rc(tok) { return resolveColor(tok); }
+    function rcMuted() {
+      var v = rc(lblToken);
+      return (v && v !== 'undefined' && v !== 'null') ? v : 'rgba(255,255,255,0.65)';
+    }
+    function rcText() {
+      var v = rc('text');
+      return (v && v !== 'undefined' && v !== 'null') ? v : '#ffffff';
     }
 
-    var pMinus = arcTerminus(startAngle);
-    var pPlus  = arcTerminus(endAngle);
+    var latestState = w.entity ? (entityStates[w.entity] || null) : null;
 
-    function makeBtn(label, pt) {
+    function getEU(state) {
+      if (!state || !state.attributes) return displayUnit;
+      var raw = String(
+        state.attributes.temperature_unit ||
+        state.attributes.unit_of_measurement || displayUnit
+      ).replace('\u00b0','').toUpperCase();
+      return raw === 'C' ? 'C' : 'F';
+    }
+    function toDisplay(v, eu) {
+      if (displayUnit === 'F' && eu === 'C') return v * 9 / 5 + 32;
+      if (displayUnit === 'C' && eu === 'F') return (v - 32) * 5 / 9;
+      return v;
+    }
+    function toEU(v, eu) {
+      if (displayUnit === 'F' && eu === 'C') return (v - 32) * 5 / 9;
+      if (displayUnit === 'C' && eu === 'F') return v * 9 / 5 + 32;
+      return v;
+    }
+    function fmt(v) {
+      if (v === null || v === undefined || isNaN(v)) return '--';
+      return Math.round(v * 10) / 10 + '';
+    }
+    function clamp(v) {
+      v = Math.round(v / cfgStep) * cfgStep;
+      if (v < cfgMin) v = cfgMin;
+      if (v > cfgMax) v = cfgMax;
+      return Math.round(v * 10) / 10;
+    }
+
+    /* ------------------------------------------------------------------
+       Arc geometry
+    ------------------------------------------------------------------ */
+    var ARC_START = 135;
+    var ARC_SWEEP = 270;
+    var ARC_END   = ARC_START + ARC_SWEEP;
+
+    function polar(cx, cy, r, deg) {
+      var rad = deg * Math.PI / 180;
+      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+    }
+    function arcPath(cx, cy, r, startDeg, endDeg) {
+      var sweep = endDeg - startDeg;
+      while (sweep <= 0)  sweep += 360;
+      while (sweep > 360) sweep -= 360;
+      if (sweep < 0.1) return '';
+      var s = polar(cx, cy, r, startDeg);
+      var e = polar(cx, cy, r, endDeg);
+      return ['M',s.x,s.y,'A',r,r,0,(sweep>180?1:0),1,e.x,e.y].join(' ');
+    }
+
+    /* ------------------------------------------------------------------
+       3.  Dimensions
+    ------------------------------------------------------------------ */
+    var wW = w.w, wH = w.h;
+    var pillH    = Math.max(32, Math.round(wH * 0.16));
+    var pillGap  = 4;
+    var arcZoneH = wH - pillH - pillGap;
+    var margin   = lineWidth + 6;
+    var r  = Math.min(wW / 2, arcZoneH * 0.46) - margin;
+    if (r < 12) r = 12;
+    var cx = wW / 2;
+    var cy = arcZoneH * 0.45;           /* v13: raised from 0.48 */
+    var circleBottom = cy + r;
+
+    /* Glass disk — sized to just clear the arc stroke */
+    var diskR    = r + lineWidth + 10;
+    var diskSize = diskR * 2;
+    var diskLeft = cx - diskR;
+    var diskTop  = cy - diskR;
+
+    /* Button spacing — inward from v12's 0.12 */
+    var btnSpacing = Math.round(wW * 0.08);
+
+    /* ------------------------------------------------------------------
+       4.  Root element — fully transparent, engine-proof
+    ------------------------------------------------------------------ */
+    el.style.position      = 'absolute';
+    el.style.display       = 'flex';
+    el.style.flexDirection = 'column';
+    el.style.boxSizing     = 'border-box';
+    el.style.userSelect    = 'none';
+    el.style.overflow      = 'visible';
+
+    if (bgToken) {
+      el.style.setProperty('background',              rc(bgToken), 'important');
+      el.style.setProperty('box-shadow',              'none',      'important');
+      el.style.setProperty('backdrop-filter',         'none',      'important');
+      el.style.setProperty('-webkit-backdrop-filter', 'none',      'important');
+      el.style.borderRadius = cardRadius + 'px';
+      el.style.overflow     = 'hidden';
+    } else {
+      el.style.setProperty('background',              'none',      'important');
+      el.style.setProperty('box-shadow',              'none',      'important');
+      el.style.setProperty('backdrop-filter',         'none',      'important');
+      el.style.setProperty('-webkit-backdrop-filter', 'none',      'important');
+      el.style.borderRadius = '0';
+    }
+
+    /* ------------------------------------------------------------------
+       5.  Arc zone
+    ------------------------------------------------------------------ */
+    var arcZone = document.createElement('div');
+    arcZone.style.cssText = [
+      'position:relative',
+      'flex:0 0 ' + arcZoneH + 'px',
+      'width:100%',
+      'background:transparent',
+      'overflow:visible'
+    ].join(';');
+    el.appendChild(arcZone);
+
+    /* ------------------------------------------------------------------
+       5a. Glass disk
+    ------------------------------------------------------------------ */
+    if (!bgToken) {
+      var glassDisk = document.createElement('div');
+      glassDisk.style.cssText = [
+        'position:absolute',
+        'left:'   + Math.round(diskLeft) + 'px',
+        'top:'    + Math.round(diskTop)  + 'px',
+        'width:'  + Math.round(diskSize) + 'px',
+        'height:' + Math.round(diskSize) + 'px',
+        'border-radius:50%',
+        'background:rgba(255,255,255,0.06)',
+        'border:1px solid rgba(255,255,255,0.13)',
+        'border-top-color:rgba(255,255,255,0.28)',
+        'backdrop-filter:blur(14px) saturate(1.4)',
+        '-webkit-backdrop-filter:blur(14px) saturate(1.4)',
+        'box-shadow:0 8px 32px rgba(0,0,0,0.22),0 1px 0 rgba(255,255,255,0.08) inset',
+        'pointer-events:none',
+        'z-index:0'
+      ].join(';');
+      arcZone.appendChild(glassDisk);
+    }
+
+    /* ------------------------------------------------------------------
+       SVG  z-index:1
+    ------------------------------------------------------------------ */
+    var ns  = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width',  wW);
+    svg.setAttribute('height', arcZoneH);
+    svg.style.cssText = 'display:block;position:absolute;top:0;left:0;pointer-events:none;overflow:visible;background:transparent;z-index:1;';
+    arcZone.appendChild(svg);
+
+    var defs = document.createElementNS(ns, 'defs');
+    svg.appendChild(defs);
+
+    function makeGlowFilter(id, color, blur, opacity) {
+      var filt = document.createElementNS(ns, 'filter');
+      filt.setAttribute('id', id);
+      filt.setAttribute('x', '-50%');
+      filt.setAttribute('y', '-50%');
+      filt.setAttribute('width', '200%');
+      filt.setAttribute('height', '200%');
+      filt.setAttribute('color-interpolation-filters', 'sRGB');
+
+      var flood = document.createElementNS(ns, 'feFlood');
+      flood.setAttribute('flood-color', color);
+      flood.setAttribute('flood-opacity', opacity);
+      flood.setAttribute('result', 'flood');
+
+      var comp = document.createElementNS(ns, 'feComposite');
+      comp.setAttribute('in', 'flood');
+      comp.setAttribute('in2', 'SourceGraphic');
+      comp.setAttribute('operator', 'in');
+      comp.setAttribute('result', 'coloredBlur');
+
+      var gblur = document.createElementNS(ns, 'feGaussianBlur');
+      gblur.setAttribute('in', 'coloredBlur');
+      gblur.setAttribute('stdDeviation', blur);
+      gblur.setAttribute('result', 'blurred');
+
+      var merge = document.createElementNS(ns, 'feMerge');
+      var n1 = document.createElementNS(ns, 'feMergeNode');
+      n1.setAttribute('in', 'blurred');
+      var n2 = document.createElementNS(ns, 'feMergeNode');
+      n2.setAttribute('in', 'SourceGraphic');
+      merge.appendChild(n1);
+      merge.appendChild(n2);
+
+      filt.appendChild(flood);
+      filt.appendChild(comp);
+      filt.appendChild(gblur);
+      filt.appendChild(merge);
+      defs.appendChild(filt);
+      return id;
+    }
+
+    var filtHeat = makeGlowFilter('therm-glow-heat', rc(heatToken) || '#ff8c42', 6, 0.9);
+    var filtCool = makeGlowFilter('therm-glow-cool', rc(coolToken) || '#56cfff', 6, 0.9);
+    var filtOff  = makeGlowFilter('therm-glow-off',  '#ffffff',                  2, 0.0);
+
+    function glowFilterForMode(m) {
+      if (m === 'off' || m === 'fan_only') return filtOff;
+      if (m === 'heat' || m === 'dry')     return filtHeat;
+      return filtCool;
+    }
+
+    /* ---- Custom fan-speed SVG icons (no native MDI glyph exists
+           for fan-speed-4 / fan-speed-5) ----------------------------- */
+    var FAN_SVG_4 = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 2c-3.6 0-4.4 4-2.4 7.7l-.9 1.2q-1.6-.3-2.5-1.6C5.6 6.9 2 7 2 11.5c0 3.6 4 4.3 7.6 2.4q.6.6 1.3.9-.3 1.7-1.6 2.4C6.9 18.4 7 22 11.5 22q1.2 0 2-.6-.5-1-.5-2.4a6 6 0 0 1 1.3-3.7l-.4-1q.6-.4.9-1.2.8.2 1.4.6a6 6 0 0 1 5.7 0l.1-1.2c0-3.6-4-4.4-7.7-2.4q-.4-.6-1.2-.9.2-1.7 1.6-2.4C17.1 5.6 17 2 12.5 2m-.5 9q.9.1 1 1-.1.9-1 1a1 1 0 0 1-1-1q0-.9 1-1m4 4v4.8h3.4V23H21v-8h-1.6v3.2h-1.8V15z"/></svg>';
+
+    var FAN_SVG_5 = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 2c-3.6 0-4.4 4-2.4 7.7l-.9 1.2q-1.6-.3-2.5-1.6C5.6 6.9 2 7 2 11.5c0 3.6 4 4.3 7.6 2.4q.6.6 1.3.9-.3 1.7-1.6 2.4C6.9 18.4 7 22 11.5 22q1.2 0 2-.6-.5-1-.5-2.4a6 6 0 0 1 1.3-3.7l-.4-1q.6-.4.9-1.2.8.2 1.4.6a6 6 0 0 1 5.7 0l.1-1.2c0-3.6-4-4.4-7.7-2.4q-.4-.6-1.2-.9.2-1.7 1.6-2.4C17.1 5.6 17 2 12.5 2m-.5 9q.9.1 1 1-.1.9-1 1a1 1 0 0 1-1-1q0-.9 1-1m4 4v4.8h3.4v1.6H16V23h3.4q1.5-.1 1.6-1.6v-1.6q-.1-1.5-1.6-1.6h-1.8v-1.6H21V15z"/></svg>';
+
+    function fanSpeedIcon(fanMode) {
+      var map = {
+        "1": "mdi:fan-speed-1",
+        "2": "mdi:fan-speed-2",
+        "3": "mdi:fan-speed-3",
+        "4": FAN_SVG_4,
+        "5": FAN_SVG_5
+      };
+      return map[String(fanMode)] || "mdi:fan";
+    }
+
+    function renderFanIcon(iconEl, iconVal, sizePx, colorVal) {
+      iconEl.style.display = 'inline-flex';
+      iconEl.style.alignItems = 'center';
+      iconEl.style.justifyContent = 'center';
+      iconEl.style.width = sizePx + 'px';
+      iconEl.style.height = sizePx + 'px';
+      iconEl.style.lineHeight = '1';
+      iconEl.style.flex = '0 0 auto';
+      iconEl.style.background = 'transparent';
+
+      if (typeof iconVal === "string" && iconVal.indexOf("<svg") !== -1) {
+        iconEl.innerHTML = iconVal;
+        iconEl.className = "icon-svg-wrap";
+        var svgEl = iconEl.querySelector("svg");
+        if (svgEl) {
+          svgEl.setAttribute("width", sizePx);
+          svgEl.setAttribute("height", sizePx);
+          if (!svgEl.getAttribute('viewBox')) {
+            svgEl.setAttribute('viewBox', '0 0 24 24');
+          }
+        }
+        iconEl.style.color = colorVal;
+      } else {
+        setContent(iconEl, iconVal);
+        iconEl.style.fontSize = sizePx + "px";
+        iconEl.style.color = colorVal;
+      }
+    }
+
+    /* Track */
+    var trackEl = document.createElementNS(ns, 'path');
+    trackEl.setAttribute('fill','none');
+    trackEl.setAttribute('stroke', 'rgba(255,255,255,0.15)');
+    trackEl.setAttribute('stroke-width', lineWidth);
+    trackEl.setAttribute('stroke-linecap','round');
+    trackEl.setAttribute('d', arcPath(cx, cy, r, ARC_START, ARC_END));
+    svg.appendChild(trackEl);
+
+    /* Value arc */
+    var valueEl = document.createElementNS(ns, 'path');
+    valueEl.setAttribute('fill','none');
+    valueEl.setAttribute('stroke-width', lineWidth);
+    valueEl.setAttribute('stroke-linecap','round');
+    valueEl.setAttribute('stroke', rc(arcToken));
+    svg.appendChild(valueEl);
+
+    /* Secondary arc (heat_cool dual) */
+    var value2El = document.createElementNS(ns, 'path');
+    value2El.setAttribute('fill','none');
+    value2El.setAttribute('stroke-width', Math.max(4, Math.round(lineWidth * 0.6)));
+    value2El.setAttribute('stroke-linecap','round');
+    value2El.setAttribute('stroke-dasharray','5 7');
+    value2El.style.display = 'none';
+    svg.appendChild(value2El);
+
+    /* ------------------------------------------------------------------
+       6.  Centre label overlay  z-index:2
+    ------------------------------------------------------------------ */
+    var centreDiv = document.createElement('div');
+    centreDiv.style.cssText = [
+      'position:absolute','top:0','left:0',
+      'width:100%','height:100%',
+      'display:flex','flex-direction:column',
+      'align-items:center','justify-content:center',
+      'text-align:center','pointer-events:none',
+      'background:transparent',
+      'z-index:2',
+      'padding-bottom:' + Math.round(arcZoneH * 0.15) + 'px'
+    ].join(';');
+    arcZone.appendChild(centreDiv);
+
+    var fsModeLabel = Math.max(9, Math.round(wW * 0.075));
+    var modeLabelEl = document.createElement('div');
+    modeLabelEl.style.cssText = [
+      'font-size:'     + fsModeLabel + 'px',
+      'font-weight:500',
+      'color:'         + rcMuted(),
+      'line-height:1.2',
+      'letter-spacing:0.04em',
+      'text-transform:capitalize',
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
+    ].join(';');
+    modeLabelEl.textContent = 'Off';
+    centreDiv.appendChild(modeLabelEl);
+
+    var fsCur  = Math.max(24, Math.round(wW * 0.22));
+    var fsUnit = Math.max(11, Math.round(fsCur * 0.36));
+    var curWrap = document.createElement('div');
+    curWrap.style.cssText = [
+      'display:flex','align-items:flex-start','justify-content:center',
+      'line-height:1','margin-top:2px','background:transparent'
+    ].join(';');
+
+    var curNumEl = document.createElement('span');
+    curNumEl.style.cssText = [
+      'font-size:'         + fsCur + 'px',
+      'font-weight:700',
+      'letter-spacing:-0.02em',
+      'color:'             + rcText(),
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
+    ].join(';');
+    curNumEl.textContent = '--';
+    curWrap.appendChild(curNumEl);
+
+    var curUnitEl = document.createElement('span');
+    curUnitEl.style.cssText = [
+      'font-size:'   + fsUnit + 'px',
+      'font-weight:600',
+      'color:'       + rcMuted(),
+      'margin-top:'  + Math.round(fsCur * 0.08) + 'px',
+      'margin-left:0px',
+      'background:transparent'
+    ].join(';');
+    curUnitEl.textContent = '\u00b0' + displayUnit;
+    curWrap.appendChild(curUnitEl);
+    centreDiv.appendChild(curWrap);
+
+    var fsSP = Math.max(8, Math.round(wW * 0.07));
+    var spLabelEl = document.createElement('div');
+    spLabelEl.style.cssText = [
+      'font-size:'  + fsSP + 'px',
+      'font-weight:500',
+      'color:'      + rcMuted(),
+      'margin-top:15px',
+      'line-height:1',
+      'background:transparent',
+      'transition:color 0.4s ease,text-shadow 0.4s ease'
+    ].join(';');
+    spLabelEl.textContent = 'Set --';
+    centreDiv.appendChild(spLabelEl);
+
+    /* ------------------------------------------------------------------
+       7.  +/- buttons  z-index:2
+    ------------------------------------------------------------------ */
+    var btnSize  = Math.max(22, Math.round(wW * 0.13));
+    var btnFS    = Math.max(13, Math.round(btnSize * 0.50));
+    var btnNudge = Math.round(arcZoneH * 0.05);
+    var btnY = Math.round(circleBottom - btnSize * 0.5) + btnNudge;
+    // Add a manual upward offset after this line:
+    btnY -= 20;  // move up by 20px — adjust to taste
+    if (btnY + btnSize > arcZoneH - 2) btnY = arcZoneH - btnSize - 2;
+    if (btnY < 2) btnY = 2;
+
+    function makePMBtn(label, onclick) {
       var btn = document.createElement('button');
-      btn.className = 'thermostat-btn';
+      btn.type = 'button';
       btn.textContent = label;
       btn.style.cssText = [
         'position:absolute',
-        'left:' + Math.round(pt.x - btnSize / 2) + 'px',
-        'top:'  + Math.round(pt.y - btnSize / 2) + 'px',
-        'width:'  + btnSize + 'px',
-        'height:' + btnSize + 'px',
-        'font-size:' + Math.round(btnSize * 0.44) + 'px',
-        'font-weight:600',
-        'line-height:1',
-        'display:flex', 'align-items:center', 'justify-content:center',
-        'border:1px solid rgba(255,255,255,0.1)',
-        'outline:none', 'cursor:pointer',
-        'background:' + resolveColor(w.background || 'surface2'),
-        'color:' + resolveColor(w.label_color || 'text_muted'),
+        'width:'         + btnSize + 'px',
+        'height:'        + btnSize + 'px',
         'border-radius:' + Math.round(btnSize / 2) + 'px',
-        'touch-action:manipulation',
+        'border:1px solid rgba(255,255,255,0.20)',
+        'border-top-color:rgba(255,255,255,0.35)',
+        'background:rgba(255,255,255,0.08)',
+        'backdrop-filter:blur(8px)',
+        '-webkit-backdrop-filter:blur(8px)',
+        'color:rgba(255,255,255,0.90)',
+        'font-size:'     + btnFS + 'px',
+        'font-family:inherit',
+        'cursor:pointer',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'padding:0',
+        'line-height:1',
+        'top:'           + btnY + 'px',
         'pointer-events:auto',
-        '-webkit-tap-highlight-color:transparent',
-        'transition:background 120ms ease, transform 80ms ease, color 120ms ease'
+        'z-index:2',
+        'transition:opacity 0.15s ease'
       ].join(';');
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        onclick();
+        if (typeof resetReturnTimer === 'function') resetReturnTimer();
+      });
+      btn.addEventListener('mousedown',  function() { btn.style.opacity = '0.5'; });
+      btn.addEventListener('mouseup',    function() { btn.style.opacity = '1'; });
+      btn.addEventListener('mouseleave', function() { btn.style.opacity = '1'; });
+      btn.addEventListener('touchstart', function() { btn.style.opacity = '0.5'; }, { passive: true });
+      btn.addEventListener('touchend',   function() { btn.style.opacity = '1'; });
       return btn;
     }
 
-    var btnMinus = makeBtn('\u2212', pMinus);
-    var btnPlus  = makeBtn('+',     pPlus);
-    el.appendChild(btnMinus);
-    el.appendChild(btnPlus);
+    var minusBtn = makePMBtn('\u2212', function() { adjustSetpoint(-cfgStep); });
+    var plusBtn  = makePMBtn('+',      function() { adjustSetpoint(cfgStep);  });
+    minusBtn.style.left = Math.round(cx - btnSpacing - btnSize) + 'px';
+    plusBtn.style.left  = Math.round(cx + btnSpacing) + 'px';
+    arcZone.appendChild(minusBtn);
+    arcZone.appendChild(plusBtn);
 
-    function btnPress(btn) {
-      btn.style.transform  = 'scale(0.86)';
-      btn.style.background = arcColor;
-      btn.style.color      = resolveColor('text') || '#fff';
-    }
-    function btnRelease(btn) {
-      btn.style.transform  = '';
-      btn.style.background = resolveColor(w.background || 'surface2');
-      btn.style.color      = resolveColor(w.label_color || 'text_muted');
+    var minusBtnLo = makePMBtn('\u2212', function() { adjustDualLow(-cfgStep); });
+    var plusBtnLo  = makePMBtn('+',      function() { adjustDualLow(cfgStep);  });
+    var minusBtnHi = makePMBtn('\u2212', function() { adjustDualHigh(-cfgStep); });
+    var plusBtnHi  = makePMBtn('+',      function() { adjustDualHigh(cfgStep);  });
+    var dualYLo = Math.max(2, btnY - Math.round(btnSize * 1.3));
+    var dualYHi = btnY;
+    minusBtnLo.style.left = minusBtnHi.style.left = minusBtn.style.left;
+    plusBtnLo.style.left  = plusBtnHi.style.left  = plusBtn.style.left;
+    minusBtnLo.style.top  = plusBtnLo.style.top   = dualYLo + 'px';
+    minusBtnHi.style.top  = plusBtnHi.style.top   = dualYHi + 'px';
+    [minusBtnLo, plusBtnLo, minusBtnHi, plusBtnHi].forEach(function(b) { b.style.display = 'none'; });
+    arcZone.appendChild(minusBtnLo);
+    arcZone.appendChild(plusBtnLo);
+    arcZone.appendChild(minusBtnHi);
+    arcZone.appendChild(plusBtnHi);
+
+    /* ------------------------------------------------------------------
+       8.  Pills zone
+    ------------------------------------------------------------------ */
+    var pillsZone = document.createElement('div');
+    pillsZone.style.cssText = [
+      'flex:0 0 ' + pillH + 'px',
+      'display:flex',
+      'flex-direction:row',
+      'align-items:stretch',
+      'gap:' + pillGap + 'px',
+      'padding:8px ' + pillGap + 'px ' + pillGap + 'px ' + pillGap + 'px',
+      'box-sizing:border-box',
+      'width:100%',
+      'background:transparent'
+    ].join(';');
+    el.appendChild(pillsZone);
+
+    var pillFS1    = Math.max(7,  Math.round(pillH * 0.22));
+    var pillFS2    = Math.max(8,  Math.round(pillH * 0.26));
+    var pillIconFS = Math.max(9,  Math.round(pillH * 0.32));
+
+    function makePill(iconStr, topText, bottomText) {
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.style.cssText = [
+        'flex:1 1 0',
+        'min-width:0',
+        'border:1px solid rgba(255,255,255,0.12)',
+        'border-top-color:rgba(255,255,255,0.24)',
+        'border-radius:' + Math.round(pillH * 0.3) + 'px',
+        'background:rgba(255,255,255,0.07)',
+        'backdrop-filter:blur(10px)',
+        '-webkit-backdrop-filter:blur(10px)',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.18)',
+        'color:rgba(255,255,255,0.90)',
+        'display:flex',
+        'flex-direction:row',
+        'align-items:center',
+        'justify-content:flex-start',
+        'gap:4px',
+        'padding:0 6px',
+        'box-sizing:border-box',
+        'cursor:pointer',
+        'font-family:inherit',
+        'overflow:hidden',
+        'transition:opacity 0.15s ease'
+      ].join(';');
+
+      var iconSpan = document.createElement('span');
+      setContent(iconSpan, iconStr);
+      iconSpan.style.cssText = [
+        'font-size:' + pillIconFS + 'px',
+        'flex:0 0 auto',
+        'color:rgba(255,255,255,0.55)',
+        'background:transparent'
+      ].join(';');
+      pill.appendChild(iconSpan);
+
+      var txtWrap = document.createElement('div');
+      txtWrap.style.cssText = [
+        'display:flex','flex-direction:column',
+        'align-items:flex-start','min-width:0',
+        'background:transparent'
+      ].join(';');
+
+      var line1 = document.createElement('span');
+      line1.style.cssText = [
+        'font-size:'    + pillFS1 + 'px',
+        'font-weight:400',
+        'color:rgba(255,255,255,0.45)',
+        'line-height:1.1',
+        'white-space:nowrap',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'max-width:100%',
+        'background:transparent'
+      ].join(';');
+      line1.textContent = topText;
+
+      var line2 = document.createElement('span');
+      line2.style.cssText = [
+        'font-size:'    + pillFS2 + 'px',
+        'font-weight:600',
+        'color:rgba(255,255,255,0.88)',
+        'line-height:1.1',
+        'white-space:nowrap',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'max-width:100%',
+        'background:transparent'
+      ].join(';');
+      line2.textContent = bottomText;
+
+      txtWrap.appendChild(line1);
+      txtWrap.appendChild(line2);
+      pill.appendChild(txtWrap);
+
+      pill.addEventListener('mousedown',  function() { pill.style.opacity = '0.6'; });
+      pill.addEventListener('mouseup',    function() { pill.style.opacity = '1'; });
+      pill.addEventListener('mouseleave', function() { pill.style.opacity = '1'; });
+      pill.addEventListener('touchstart', function() { pill.style.opacity = '0.6'; }, { passive: true });
+      pill.addEventListener('touchend',   function() { pill.style.opacity = '1'; });
+
+      return { pill: pill, icon: iconSpan, line1: line1, line2: line2 };
     }
 
-    ['mousedown', 'touchstart'].forEach(function(ev) {
-      btnMinus.addEventListener(ev, function() { btnPress(btnMinus);  }, { passive: true });
-      btnPlus.addEventListener( ev, function() { btnPress(btnPlus);   }, { passive: true });
+    var modePill  = makePill('[mdi:power]',                'Mode',       'Off');
+    var fanPill   = makePill('[mdi:fan]',                  'Fan mode',   'Auto');
+    var swingPill = makePill('[mdi:arrow-split-vertical]', 'Swing mode', 'Off');
+    [modePill, fanPill, swingPill].forEach(function(p) { pillsZone.appendChild(p.pill); });
+
+    /* ------------------------------------------------------------------
+       Picker overlay
+    ------------------------------------------------------------------ */
+    var activeOverlay  = null;
+    var activeCloseExt = null;
+
+    function closeActiveOverlay() {
+      if (activeOverlay && activeOverlay.parentNode)
+        activeOverlay.parentNode.removeChild(activeOverlay);
+      if (activeCloseExt)
+        document.removeEventListener('click', activeCloseExt);
+      activeOverlay = null; activeCloseExt = null;
+    }
+
+    function makeListPicker(options, onSelect) {
+      closeActiveOverlay();
+      var overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position:absolute',
+        'bottom:' + (pillH + pillGap) + 'px',
+        'left:'   + pillGap + 'px',
+        'right:'  + pillGap + 'px',
+        'background:rgba(20,20,24,0.82)',
+        'backdrop-filter:blur(20px)',
+        '-webkit-backdrop-filter:blur(20px)',
+        'border:1px solid rgba(255,255,255,0.12)',
+        'border-top-color:rgba(255,255,255,0.22)',
+        'border-radius:' + Math.round(pillH * 0.3) + 'px',
+        'padding:6px',
+        'display:flex',
+        'flex-wrap:wrap',
+        'gap:4px',
+        'justify-content:center',
+        'box-shadow:0 8px 32px rgba(0,0,0,0.45)',
+        'z-index:10'
+      ].join(';');
+
+      var chipH  = Math.max(20, Math.round(pillH * 0.70));
+      var chipFS = Math.max(9,  Math.round(chipH  * 0.52));
+
+      options.forEach(function(opt) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.style.cssText = [
+          'border:1px solid rgba(255,255,255,0.14)',
+          'border-radius:' + Math.round(chipH / 2) + 'px',
+          'height:'        + chipH + 'px',
+          'padding:0 8px',
+          'background:rgba(255,255,255,0.08)',
+          'color:rgba(255,255,255,0.88)',
+          'font-size:'     + chipFS + 'px',
+          'font-family:inherit',
+          'cursor:pointer',
+          'display:flex',
+          'align-items:center',
+          'gap:4px'
+        ].join(';');
+        if (opt.icon) {
+          var ic = document.createElement('span');
+          renderFanIcon(ic, opt.icon, chipFS, 'rgba(255,255,255,0.88)');
+          chip.appendChild(ic);
+        }
+        var tx = document.createElement('span');
+        tx.textContent = opt.label;
+        chip.appendChild(tx);
+        chip.addEventListener('click', function(e) {
+          e.stopPropagation();
+          onSelect(opt.value);
+          closeActiveOverlay();
+          if (typeof resetReturnTimer === 'function') resetReturnTimer();
+        });
+        overlay.appendChild(chip);
+      });
+
+      el.appendChild(overlay);
+      activeOverlay = overlay;
+      setTimeout(function() {
+        activeCloseExt = function() { closeActiveOverlay(); };
+        document.addEventListener('click', activeCloseExt);
+      }, 0);
+    }
+
+    var HVAC_ICONS  = { heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
+                        auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
+                        fan_only:'[mdi:fan]', off:'[mdi:power]' };
+    var HVAC_LABELS = { heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool', auto:'Auto',
+                        dry:'Dry', fan_only:'Fan', off:'Off' };
+    var DEFAULT_HVAC = ['auto','heat','cool','heat_cool','dry','fan_only','off'];
+
+    modePill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.hvac_modes)
+        ? latestState.attributes.hvac_modes : DEFAULT_HVAC;
+      makeListPicker(avail.map(function(m) {
+        return { value:m, label:HVAC_LABELS[m]||m, icon:HVAC_ICONS[m]||'[mdi:thermostat]' };
+      }), function(mode) { sendMode(mode); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
-    ['mouseup', 'touchend', 'mouseleave'].forEach(function(ev) {
-      btnMinus.addEventListener(ev, function() { btnRelease(btnMinus); });
-      btnPlus.addEventListener( ev, function() { btnRelease(btnPlus);  });
+
+    var FAN_ICONS  = { auto:'[mdi:fan-auto]', low:'[mdi:fan-speed-1]', medium:'[mdi:fan-speed-3]',
+                       high: fanSpeedIcon('5'), medium_low:'[mdi:fan-speed-2]', medium_high: fanSpeedIcon('4'),
+                       quiet:'[mdi:weather-night]', 'on':'[mdi:fan]', 'off':'[mdi:fan-off]' };
+    function fanOptionIcon(fanMode) {
+      var key = String(fanMode).toLowerCase();
+      return FAN_ICONS[key] || fanSpeedIcon(key) || '[mdi:fan]';
+    }
+    var FAN_LABELS = { auto:'Auto', low:'Low', medium:'Medium', high:'High',
+                       medium_low:'Medium-Low', medium_high:'Medium-High', quiet:'Quiet', 'on':'On', 'off':'Off' };
+    var DEFAULT_FAN = ['auto','low','medium','high','off'];
+
+    fanPill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.fan_modes)
+        ? latestState.attributes.fan_modes : DEFAULT_FAN;
+      makeListPicker(avail.map(function(f) {
+        return { value:f, label:FAN_LABELS[f]||f, icon:fanOptionIcon(f) };
+      }), function(fm) { sendFanMode(fm); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
     });
 
-    var currentSetpoint = null;
+    var SWING_ICONS  = { 'off':'[mdi:arrow-collapse-vertical]', both:'[mdi:arrow-split-vertical]',
+                          vertical:'[mdi:arrow-up-down]', horizontal:'[mdi:arrow-left-right]',
+                          upper:'[mdi:arrow-up]' };
+    var SWING_LABELS = { 'off':'Off', both:'Both', vertical:'Vertical',
+                          horizontal:'Horizontal', upper:'Upper' };
+    var DEFAULT_SWING = ['off','vertical','horizontal','both'];
 
-    function getSetpoint(state) {
-      if (!state) return null;
-      var raw = (state.attributes && state.attributes[valueAttr] !== undefined)
-        ? state.attributes[valueAttr] : state.state;
-      var n = parseFloat(raw);
-      return isNaN(n) ? null : n;
+    swingPill.pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var avail = (latestState && latestState.attributes && latestState.attributes.swing_modes)
+        ? latestState.attributes.swing_modes : DEFAULT_SWING;
+      makeListPicker(avail.map(function(s) {
+        return { value:s, label:SWING_LABELS[s]||s, icon:SWING_ICONS[s]||'[mdi:arrow-split-vertical]' };
+      }), function(sm) { sendSwingMode(sm); });
+      if (typeof resetReturnTimer === 'function') resetReturnTimer();
+    });
+
+    /* ------------------------------------------------------------------
+       9.  Setpoint state
+    ------------------------------------------------------------------ */
+    var singleSP = clamp((cfgMin + cfgMax) / 2);
+    var dualLow  = clamp(cfgMin + (cfgMax - cfgMin) * 0.35);
+    var dualHigh = clamp(cfgMin + (cfgMax - cfgMin) * 0.65);
+    var isDual   = false;
+    var curMode  = 'off';
+
+    function modeColor(m) {
+      if (m === 'heat' || m === 'dry')     return rc(heatToken);
+      if (m === 'cool' || m === 'auto')    return rc(coolToken);
+      if (m === 'heat_cool')               return rc(heatToken);
+      if (m === 'fan_only' || m === 'off') return rcMuted();
+      return rc(arcToken);
     }
 
-    function clampStep(v) {
-      var n = Math.round((v - min) / step) * step + min;
-      if (n < min) n = min;
-      if (n > max) n = max;
-      return stepDp > 0 ? parseFloat(n.toFixed(stepDp)) : Math.round(n);
+    function glowShadow(color) {
+      return '0 0 8px ' + color + ',0 0 18px ' + color + ',0 0 32px ' + color;
     }
 
-    function fmtTarget(v) {
-      if (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) {
-        targetEl.innerHTML = '<span style="font-weight:400;opacity:0.4">--</span>';
-        return;
-      }
-      var num = stepDp > 0 ? Number(v).toFixed(stepDp) : String(Math.round(Number(v)));
-      targetEl.innerHTML = num +
-        '<sup style="font-size:0.38em;font-weight:500;vertical-align:0.55em;letter-spacing:0;opacity:0.75">' +
-        unit + '</sup>';
+    function spToPct(sp) {
+      var p = (sp - cfgMin) / (cfgMax - cfgMin);
+      return p < 0 ? 0 : p > 1 ? 1 : p;
     }
 
-    function fmtCurrent(v) {
-      var n = parseFloat(v);
-      if (isNaN(n)) return '';
-      return 'room \u00a0' + Math.round(n) + '\u00b0';
-    }
+    function redraw() {
+      var col      = modeColor(curMode);
+      var isActive = curMode !== 'off' && curMode !== 'fan_only';
+      var glowFilt = 'url(#' + glowFilterForMode(curMode) + ')';
 
-    function updateArc(setpoint) {
-      if (setpoint === null) {
-        valuePath.setAttribute('d', '');
-        tickPath.style.display = 'none';
-        return;
-      }
-      var pct = (setpoint - min) / (max - min);
-      if (pct < 0) pct = 0;
-      if (pct > 1) pct = 1;
-      var fillEnd = startAngle + pct * (endAngle - startAngle);
+      valueEl.setAttribute('stroke', col);
+      valueEl.setAttribute('filter', isActive ? glowFilt : 'none');
 
-      if (pct <= 0) {
-        valuePath.setAttribute('d', '');
-      } else if (pct >= 1) {
-        valuePath.setAttribute('d', describeArc(cx, cy, r, startAngle, endAngle - 0.01));
+      curNumEl.style.color      = col;
+      curNumEl.style.textShadow = isActive ? glowShadow(col) : 'none';
+
+      modeLabelEl.style.color      = isActive ? col : rcMuted();
+      modeLabelEl.style.textShadow = isActive ? glowShadow(col) : 'none';
+
+      spLabelEl.style.color      = isActive ? 'rgba(255,255,255,0.75)' : rcMuted();
+      spLabelEl.style.textShadow = isActive
+        ? '0 0 6px ' + col + ',0 0 14px ' + col : 'none';
+
+      if (isDual) {
+        var pLo = spToPct(dualLow), pHi = spToPct(dualHigh);
+        var aLo = ARC_START + pLo * ARC_SWEEP;
+        var aHi = ARC_START + pHi * ARC_SWEEP;
+        var heatCol = modeColor('heat');
+        var coolCol = modeColor('cool');
+        valueEl.setAttribute('stroke', heatCol);
+        valueEl.setAttribute('filter', 'url(#' + filtHeat + ')');
+        valueEl.setAttribute('d', pLo <= 0 ? '' : arcPath(cx, cy, r, ARC_START, aLo));
+        value2El.setAttribute('stroke', coolCol);
+        value2El.setAttribute('filter', 'url(#' + filtCool + ')');
+        value2El.style.display = '';
+        value2El.setAttribute('d', pHi <= pLo ? '' : arcPath(cx, cy, r, aLo, aHi));
+        spLabelEl.textContent = fmt(dualLow) + '\u00b0\u2013' + fmt(dualHigh) + '\u00b0' + displayUnit;
       } else {
-        valuePath.setAttribute('d', describeArc(cx, cy, r, startAngle, fillEnd));
+        var pct = spToPct(singleSP);
+        var ang = ARC_START + pct * ARC_SWEEP;
+        valueEl.setAttribute('d',
+          pct <= 0 ? '' :
+          pct >= 1 ? arcPath(cx, cy, r, ARC_START, ARC_END - 0.5) :
+                     arcPath(cx, cy, r, ARC_START, ang));
+        value2El.style.display = 'none';
+        spLabelEl.textContent  = 'Set ' + fmt(singleSP) + '\u00b0' + displayUnit;
       }
-
-      var halfLen = lw * 0.75;
-      var p1 = polarToCartesian(cx, cy, r - halfLen, fillEnd);
-      var p2 = polarToCartesian(cx, cy, r + halfLen, fillEnd);
-      tickPath.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' L ' + p2.x + ' ' + p2.y);
-      tickPath.style.display = '';
     }
+
+    function adjustSetpoint(delta) {
+      singleSP = clamp(singleSP + delta); redraw(); sendSingleTemp();
+    }
+    function adjustDualLow(delta) {
+      dualLow = clamp(dualLow + delta);
+      if (dualLow >= dualHigh) dualLow = clamp(dualHigh - cfgStep);
+      redraw(); sendDualTemp();
+    }
+    function adjustDualHigh(delta) {
+      dualHigh = clamp(dualHigh + delta);
+      if (dualHigh <= dualLow) dualHigh = clamp(dualLow + cfgStep);
+      redraw(); sendDualTemp();
+    }
+
+    function sendSingleTemp() {
+      if (!w.entity) return;
+      var eu = getEU(latestState);
+      handleAction({ type:'service', service:'climate.set_temperature',
+        data:{ entity_id:w.entity, temperature: Math.round(toEU(singleSP,eu)*2)/2 } });
+    }
+    function sendDualTemp() {
+      if (!w.entity) return;
+      var eu = getEU(latestState);
+      handleAction({ type:'service', service:'climate.set_temperature',
+        data:{ entity_id:w.entity,
+          target_temp_low:  Math.round(toEU(dualLow, eu)*2)/2,
+          target_temp_high: Math.round(toEU(dualHigh,eu)*2)/2 } });
+    }
+    function sendMode(mode) {
+      if (!w.entity) return;
+      handleAction({ type:'service', service:'climate.set_hvac_mode',
+        data:{ entity_id:w.entity, hvac_mode:mode } });
+    }
+    function sendFanMode(fm) {
+      if (!w.entity) return;
+      handleAction({ type:'service', service:'climate.set_fan_mode',
+        data:{ entity_id:w.entity, fan_mode:fm } });
+    }
+    function sendSwingMode(sm) {
+      if (!w.entity) return;
+      handleAction({ type:'service', service:'climate.set_swing_mode',
+        data:{ entity_id:w.entity, swing_mode:sm } });
+    }
+
+    var LABELS_MODE  = { heat:'Heat', cool:'Cool', heat_cool:'Heat/Cool', auto:'Auto',
+                         dry:'Dry', fan_only:'Fan', off:'Off' };
+    var LABELS_FAN   = { auto:'Auto', low:'Low', medium:'Med', high:'High',
+                         medium_low:'Medium-Low', medium_high:'Medium-High', quiet:'Quiet', 'on':'On', 'off':'Off' };
+    var LABELS_SWING = { 'off':'Off', both:'Both', vertical:'Vertical',
+                         horizontal:'Horizontal', upper:'Upper' };
+    var ICONS_MODE   = { heat:'[mdi:fire]', cool:'[mdi:snowflake]', heat_cool:'[mdi:autorenew]',
+                         auto:'[mdi:thermostat-auto]', dry:'[mdi:water-percent]',
+                         fan_only:'[mdi:fan]', off:'[mdi:power]' };
 
     function applyState(state) {
       if (!state) return;
-      var ovr = resolveOverrides(w, state) || {};
+      var attrs = state.attributes || {};
+      var eu    = getEU(state);
 
-      var sp = getSetpoint(state);
-      if (sp !== null) currentSetpoint = clampStep(sp);
-      fmtTarget(currentSetpoint);
-      updateArc(currentSetpoint);
+      var cur = parseFloat(attrs.current_temperature);
+      curNumEl.textContent = isNaN(cur) ? '--' : fmt(toDisplay(cur, eu));
 
-      var curRaw = (state.attributes && state.attributes[currentAttr] !== undefined)
-        ? state.attributes[currentAttr] : null;
-      currentEl.textContent = fmtCurrent(curRaw);
+      curMode = String(state.state || '').toLowerCase();
+      var modeStr = LABELS_MODE[curMode] || curMode;
+      modeLabelEl.textContent    = modeStr;
+      modePill.line2.textContent = modeStr;
+      setContent(modePill.icon, ICONS_MODE[curMode] || '[mdi:thermostat]');
 
-      var mode = (state.attributes && state.attributes[modeAttr] !== undefined)
-        ? state.attributes[modeAttr] : state.state;
-      modeEl.textContent = mode ? String(mode).replace(/_/g, ' ') : '';
+      fanPill.line2.textContent   = LABELS_FAN[String(attrs.fan_mode   || attrs.fan_speed || 'auto').toLowerCase()] || String(attrs.fan_mode || 'auto');
+      swingPill.line2.textContent = LABELS_SWING[String(attrs.swing_mode || 'off').toLowerCase()] || String(attrs.swing_mode || 'off');
 
-      arcColor = resolveColor(ovr.color || w.color || 'primary');
-      targetEl.style.color = arcColor;
-      valuePath.setAttribute('stroke', arcColor);
-      tickPath.setAttribute('stroke', arcColor);
-      trackPath.setAttribute('stroke', resolveColor(ovr.background || w.background || 'surface2'));
+      var newDual = curMode === 'heat_cool' &&
+                    attrs.target_temp_low  !== undefined &&
+                    attrs.target_temp_high !== undefined;
+      if (newDual !== isDual) {
+        isDual = newDual;
+        minusBtn.style.display = plusBtn.style.display = isDual ? 'none' : 'flex';
+        [minusBtnLo,plusBtnLo,minusBtnHi,plusBtnHi].forEach(function(b) {
+          b.style.display = isDual ? 'flex' : 'none';
+        });
+      }
 
-      if (ovr.opacity !== undefined) el.style.opacity = ovr.opacity;
-      else if (w.opacity !== undefined) el.style.opacity = w.opacity;
+      if (isDual) {
+        var rawLo = parseFloat(attrs.target_temp_low);
+        var rawHi = parseFloat(attrs.target_temp_high);
+        if (!isNaN(rawLo)) dualLow  = clamp(toDisplay(rawLo, eu));
+        if (!isNaN(rawHi)) dualHigh = clamp(toDisplay(rawHi, eu));
+      } else {
+        var rawT = parseFloat(attrs.temperature);
+        if (!isNaN(rawT)) singleSP = clamp(toDisplay(rawT, eu));
+      }
+      redraw();
     }
 
-    function sendSetpoint(val) {
-      resetReturnTimer();
-      wsSend({
-        id:           msgId++,
-        type:         'call_service',
-        domain:       'climate',
-        service:      'set_temperature',
-        target:       { entity_id: w.entity },
-        service_data: { temperature: val }
+    if (w.entity) {
+      registerEntityCallback(w.entity, function(state) {
+        latestState = state;
+        applyState(state);
+      });
+      if (latestState) applyState(latestState);
+    }
+
+    redraw();
+  }
+  // -- Package Tracker --
+  // Displays active shipments (from a package-count summary entity) and,
+  // optionally, USPS Informed Delivery mailpiece images (from a secondary
+  // entity). Both entities are optional independently:
+  //   entity  -> summary sensor, e.g. sensor.package_tracker_package_tracker_count
+  //              state = in-transit count; attributes.packages = [] of records
+  //   entity2 -> USPS Informed Delivery sensor, e.g.
+  //              sensor.package_tracker_usps_informed_delivery
+  //              state = mail/package summary text
+  //              attributes.mailpiece_images = [] of image URLs (relative to HA)
+  //              attributes.mail_count = number
+  //
+  // Config:
+  //   max_packages      - cap on package rows rendered (default 5)
+  //   show_carrier_icon - show a small MDI icon per carrier (default true)
+  //   show_mail_images  - show USPS mailpiece image strip if entity2 provided (default true)
+  //   empty_text        - text shown when there are zero active packages (default "No packages in transit")
+  //   title             - optional header text shown above the list (default none)
+  function renderPackageTracker(el, w) {
+    el.className += ' widget-package-tracker';
+    el.style.background = resolveColor(w.background || 'surface');
+    el.style.borderRadius = (w.radius !== undefined ? w.radius : 12) + 'px';
+    el.style.overflow = 'hidden';
+    if (w.opacity !== undefined) el.style.opacity = w.opacity;
+
+    var maxPackages     = (w.max_packages !== undefined) ? parseInt(w.max_packages, 10) : 5;
+    if (isNaN(maxPackages) || maxPackages < 1) maxPackages = 5;
+    var showCarrierIcon = (w.show_carrier_icon !== false);
+    var showMailImages  = (w.show_mail_images !== false);
+    var emptyText       = w.empty_text || 'No packages in transit';
+
+    var wrap = document.createElement('div');
+    wrap.style.position = 'absolute';
+    wrap.style.left = '0'; wrap.style.top = '0';
+    wrap.style.right = '0'; wrap.style.bottom = '0';
+    wrap.style.padding = (w.padding !== undefined ? w.padding : 12) + 'px';
+    wrap.style.overflow = 'auto';
+    wrap.style.webkitOverflowScrolling = 'touch';
+    wrap.style.boxSizing = 'border-box';
+    el.appendChild(wrap);
+
+    if (w.title) {
+      var titleEl = document.createElement('div');
+      titleEl.style.color = resolveColor(w.title_color || 'text_muted');
+      titleEl.style.fontSize = (w.title_size || 13) + 'px';
+      titleEl.style.letterSpacing = '1px';
+      titleEl.style.marginBottom = '8px';
+      setContent(titleEl, String(w.title).toUpperCase());
+      wrap.appendChild(titleEl);
+    }
+
+    var listEl = document.createElement('div');
+    wrap.appendChild(listEl);
+
+    var mailStripEl = null;
+    if (showMailImages) {
+      mailStripEl = document.createElement('div');
+      mailStripEl.style.display = 'none';
+      mailStripEl.style.marginTop = '10px';
+      mailStripEl.style.paddingTop = '10px';
+      mailStripEl.style.borderTop = '1px solid ' + resolveColor('surface2');
+      wrap.appendChild(mailStripEl);
+    }
+
+    var CARRIER_ICONS = {
+      'UPS': 'truck-delivery',
+      'USPS': 'mailbox',
+      'FedEx': 'truck-fast',
+      'Amazon Logistics': 'package-variant-closed',
+      'DHL': 'truck-delivery-outline',
+      'OnTrac': 'truck-delivery'
+    };
+
+    var STATUS_COLORS = {
+      'Label Created': 'text_muted',
+      'Shipped': 'text_muted',
+      'In Transit': 'primary',
+      'Arriving Today': 'warning',
+      'Out for Delivery': 'warning',
+      'Delivered': 'success'
+    };
+
+    function getCarrierIcon(carrier) {
+      var key = String(carrier || '');
+      return CARRIER_ICONS[key] || 'package-variant';
+    }
+
+    function getStatusColor(status) {
+      var key = String(status || '');
+      return STATUS_COLORS[key] || 'text_muted';
+    }
+
+    function normalizeImageUrl(raw) {
+      if (!raw) return '';
+      var u = String(raw);
+      if (/^https?:\/\//i.test(u) || u.indexOf('data:') === 0) return u;
+      if (u.charAt(0) === '/') return haUrl + u;
+      return u;
+    }
+
+    function renderPackageRow(pkg) {
+      var row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.padding = '8px 0';
+      row.style.borderBottom = '1px solid ' + resolveColor('surface2');
+
+      if (showCarrierIcon) {
+        var iconWrap = document.createElement('div');
+        iconWrap.style.width = '28px';
+        iconWrap.style.height = '28px';
+        iconWrap.style.flex = '0 0 28px';
+        iconWrap.style.display = 'flex';
+        iconWrap.style.alignItems = 'center';
+        iconWrap.style.justifyContent = 'center';
+        iconWrap.style.marginRight = '10px';
+        iconWrap.style.color = resolveColor(getStatusColor(pkg.status));
+        setContent(iconWrap, '[mdi:' + getCarrierIcon(pkg.carrier) + ']');
+        iconWrap.style.fontSize = '20px';
+        row.appendChild(iconWrap);
+      }
+
+      var infoWrap = document.createElement('div');
+      infoWrap.style.flex = '1 1 auto';
+      infoWrap.style.minWidth = '0';
+
+      var line1 = document.createElement('div');
+      line1.style.color = resolveColor(w.text_color || 'text');
+      line1.style.fontSize = (w.text_size || 14) + 'px';
+      line1.style.whiteSpace = 'nowrap';
+      line1.style.overflow = 'hidden';
+      line1.style.textOverflow = 'ellipsis';
+      var carrierText = pkg.carrier || 'Package';
+      line1.textContent = carrierText + (pkg.tracking_number ? (' - ' + pkg.tracking_number) : '');
+      infoWrap.appendChild(line1);
+
+      var line2 = document.createElement('div');
+      line2.style.fontSize = (w.detail_size || 12) + 'px';
+      line2.style.color = resolveColor(getStatusColor(pkg.status));
+      line2.style.marginTop = '2px';
+      var line2Text = pkg.status || 'In Transit';
+      if (pkg.delivery_estimate) line2Text += ' - Est. ' + pkg.delivery_estimate;
+      line2.textContent = line2Text;
+      infoWrap.appendChild(line2);
+
+      row.appendChild(infoWrap);
+      return row;
+    }
+
+    function renderMailStrip(images) {
+      if (!mailStripEl) return;
+      mailStripEl.innerHTML = '';
+      if (!images || !images.length) {
+        mailStripEl.style.display = 'none';
+        return;
+      }
+      mailStripEl.style.display = 'flex';
+      mailStripEl.style.gap = '8px';
+      mailStripEl.style.overflowX = 'auto';
+      mailStripEl.style.webkitOverflowScrolling = 'touch';
+
+      for (var i = 0; i < images.length; i++) {
+        var img = document.createElement('img');
+        img.src = normalizeImageUrl(images[i]);
+        img.style.height = (w.mail_image_height || 110) + 'px';
+        img.style.borderRadius = '4px';
+        img.style.flex = '0 0 auto';
+        img.style.border = '1px solid ' + resolveColor('surface2');
+        img.style.cursor = 'pointer';
+        mailStripEl.appendChild(img);
+      }
+    }
+
+    function renderFromStates(pkgState, mailState) {
+      listEl.innerHTML = '';
+      var packages = (pkgState && pkgState.attributes && pkgState.attributes.packages) || [];
+      if (!packages.length) {
+        var empty = document.createElement('div');
+        empty.style.color = resolveColor('text_muted');
+        empty.style.fontSize = (w.text_size || 14) + 'px';
+        empty.style.padding = '6px 0';
+        empty.textContent = emptyText;
+        listEl.appendChild(empty);
+      } else {
+        var shown = packages.slice(0, maxPackages);
+        for (var i = 0; i < shown.length; i++) {
+          listEl.appendChild(renderPackageRow(shown[i]));
+        }
+        if (listEl.lastChild) listEl.lastChild.style.borderBottom = 'none';
+      }
+
+      if (showMailImages) {
+        var images = (mailState && mailState.attributes && mailState.attributes.mailpiece_images) || [];
+        renderMailStrip(images);
+      }
+    }
+
+    var pkgStateCache  = w.entity  ? (entityStates[w.entity]  || null) : null;
+    var mailStateCache = w.entity2 ? (entityStates[w.entity2] || null) : null;
+
+    if (w.entity) {
+      registerEntityCallback(w.entity, function(state) {
+        pkgStateCache = state;
+        renderFromStates(pkgStateCache, mailStateCache);
+      });
+    }
+    if (w.entity2) {
+      registerEntityCallback(w.entity2, function(state) {
+        mailStateCache = state;
+        renderFromStates(pkgStateCache, mailStateCache);
       });
     }
 
-    btnMinus.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (currentSetpoint === null) return;
-      var next = clampStep(currentSetpoint - step);
-      currentSetpoint = next;
-      fmtTarget(next);
-      updateArc(next);
-      sendSetpoint(next);
-    });
-
-    btnPlus.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (currentSetpoint === null) return;
-      var next = clampStep(currentSetpoint + step);
-      currentSetpoint = next;
-      fmtTarget(next);
-      updateArc(next);
-      sendSetpoint(next);
-    });
-
-    if (w.entity) {
-      registerEntityCallback(w.entity, function(state) { applyState(state); });
-      var cached = entityStates[w.entity];
-      if (cached) applyState(cached);
-    }
+    renderFromStates(pkgStateCache, mailStateCache);
   }
+
+  // -- Mail Summary --
+  // Renders a USPS Informed Delivery status summary, mirroring the logic of
+  // a Lovelace markdown card built against sensor.package_tracker_usps_informed_delivery.
+  // entity attributes expected:
+  //   mail_count, package_count, advertised_package_count, sender,
+  //   mailpieces (array of strings), mailpiece_images (array of URLs)
+  //   state.last_updated (standard HA field, ISO 8601)
+  //
+  // Config:
+  //   title            - header text (default "Today's USPS Mail")
+  //   show_images      - show preview image strip (default true)
+  //   max_images       - cap on images rendered (default 6)
+  //   image_height     - px height of preview thumbnails (default 90)
+  //   empty_images_text- shown when no images available (default matches markdown card)
+  function renderMailSummary(el, w) {
+    el.className += ' widget-mail-summary';
+    el.style.background = resolveColor(w.background || 'surface');
+    el.style.borderRadius = (w.radius !== undefined ? w.radius : 12) + 'px';
+    el.style.overflow = 'hidden';
+    if (w.opacity !== undefined) el.style.opacity = w.opacity;
+
+    var title            = w.title !== undefined ? w.title : "Today's USPS Mail";
+    var showImages       = (w.show_images !== false);
+    var maxImages        = (w.max_images !== undefined) ? parseInt(w.max_images, 10) : 6;
+    if (isNaN(maxImages) || maxImages < 1) maxImages = 6;
+    var imageHeight      = (w.image_height !== undefined) ? parseInt(w.image_height, 10) : 110;
+    var emptyImagesText  = w.empty_images_text || 'No USPS mailpiece preview images were available in the latest digest.';
+
+    var wrap = document.createElement('div');
+    wrap.style.position = 'absolute';
+    wrap.style.left = '0'; wrap.style.top = '0';
+    wrap.style.right = '0'; wrap.style.bottom = '0';
+    wrap.style.padding = (w.padding !== undefined ? w.padding : 14) + 'px';
+    wrap.style.overflow = 'auto';
+    wrap.style.webkitOverflowScrolling = 'touch';
+    wrap.style.boxSizing = 'border-box';
+    wrap.style.fontFamily = '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+    el.appendChild(wrap);
+
+    if (title) {
+      var titleEl = document.createElement('div');
+      titleEl.style.color = resolveColor(w.title_color || 'text');
+      titleEl.style.fontSize = (w.title_size || 16) + 'px';
+      titleEl.style.fontWeight = '600';
+      titleEl.style.marginBottom = '10px';
+      setContent(titleEl, title);
+      wrap.appendChild(titleEl);
+    }
+
+    var bodyEl = document.createElement('div');
+    wrap.appendChild(bodyEl);
+
+    function addLine(container, label, value, opts) {
+      var line = document.createElement('div');
+      line.style.fontSize = (w.text_size || 13) + 'px';
+      line.style.color = resolveColor((opts && opts.color) || 'text');
+      line.style.marginBottom = '5px';
+      line.style.lineHeight = '1.4';
+      if (label) {
+        var b = document.createElement('span');
+        b.style.fontWeight = '600';
+        b.style.color = resolveColor('text');
+        b.textContent = label + ': ';
+        line.appendChild(b);
+        var v = document.createElement('span');
+        v.textContent = value;
+        line.appendChild(v);
+      } else {
+        line.textContent = value;
+      }
+      container.appendChild(line);
+      return line;
+    }
+
+    function pad2(n) {
+      return (n < 10 ? '0' : '') + n;
+    }
+
+    function formatUpdated(state) {
+      var ts = state && (state.last_updated || state.last_changed);
+      if (!ts) return null;
+      var d = new Date(ts);
+      if (isNaN(d.getTime())) return null;
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var h = d.getHours();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      var h12 = h % 12; if (h12 === 0) h12 = 12;
+      var mins = pad2(d.getMinutes());
+      return months[d.getMonth()] + ' ' + d.getDate() + ', ' + h12 + ':' + mins + ' ' + ampm;
+    }
+
+    function normalizeImageUrl(raw) {
+      if (!raw) return '';
+      var u = String(raw);
+      if (/^https?:\/\//i.test(u) || u.indexOf('data:') === 0) return u;
+      if (u.charAt(0) === '/') return haUrl + u;
+      return u;
+    }
+
+    function renderImageStrip(container, images) {
+      var stripWrap = document.createElement('div');
+      stripWrap.style.marginTop = '10px';
+      stripWrap.style.paddingTop = '10px';
+      stripWrap.style.borderTop = '1px solid ' + resolveColor('surface2');
+
+      var stripTitle = document.createElement('div');
+      stripTitle.style.fontWeight = '600';
+      stripTitle.style.fontSize = (w.text_size || 13) + 'px';
+      stripTitle.style.color = resolveColor('text');
+      stripTitle.style.marginBottom = '6px';
+      stripTitle.textContent = 'Preview images';
+      stripWrap.appendChild(stripTitle);
+
+      if (!images || !images.length) {
+        var emptyEl = document.createElement('div');
+        emptyEl.style.fontSize = (w.text_size || 13) + 'px';
+        emptyEl.style.color = resolveColor('text_muted');
+        emptyEl.style.fontStyle = 'italic';
+        emptyEl.textContent = emptyImagesText;
+        stripWrap.appendChild(emptyEl);
+      } else {
+        var stripEl = document.createElement('div');
+        stripEl.style.display = 'flex';
+        stripEl.style.gap = '8px';
+        stripEl.style.overflowX = 'auto';
+        stripEl.style.webkitOverflowScrolling = 'touch';
+
+        var shown = images.slice(0, maxImages);
+        for (var i = 0; i < shown.length; i++) {
+          var img = document.createElement('img');
+          img.src = normalizeImageUrl(shown[i]);
+          img.alt = 'USPS mail preview';
+          img.style.height = imageHeight + 'px';
+          img.style.borderRadius = '4px';
+          img.style.flex = '0 0 auto';
+          img.style.border = '1px solid ' + resolveColor('surface2');
+          stripEl.appendChild(img);
+        }
+        stripWrap.appendChild(stripEl);
+      }
+      container.appendChild(stripWrap);
+    }
+
+    function renderFromState(state) {
+      bodyEl.innerHTML = '';
+
+      if (!state || state.state === 'unknown' || state.state === 'unavailable') {
+        addLine(bodyEl, null, 'USPS Informed Delivery is not available yet.', { color: 'text_muted' });
+        return;
+      }
+
+      if (state.state === 'No mail detected') {
+        addLine(bodyEl, null, 'No USPS mail or packages were detected in the latest digest.', { color: 'text_muted' });
+        return;
+      }
+
+      var attrs = state.attributes || {};
+      var mailCount = attrs.mail_count;
+      var packages  = (attrs.package_count !== undefined && attrs.package_count !== null) ? attrs.package_count : 0;
+      var advertised = attrs.advertised_package_count;
+
+      addLine(bodyEl, 'Status', state.state);
+
+      if (mailCount !== undefined && mailCount !== null) {
+        addLine(bodyEl, 'Mail expected', mailCount + ' piece' + (mailCount === 1 ? '' : 's'));
+      } else {
+        addLine(bodyEl, 'Mail expected', 'USPS mail detected');
+      }
+
+      if (packages > 0) {
+        addLine(bodyEl, 'Tracked packages', String(packages));
+      } else if (advertised !== undefined && advertised !== null && advertised > 0) {
+        addLine(bodyEl, 'Packages in digest', String(advertised));
+      } else {
+        addLine(bodyEl, 'Packages', 'None detected');
+      }
+
+      if (attrs.sender) {
+        addLine(bodyEl, 'Source', attrs.sender);
+      }
+
+      var updatedStr = formatUpdated(state);
+      if (updatedStr) {
+        addLine(bodyEl, 'Updated', updatedStr);
+      }
+
+      var mailpieces = attrs.mailpieces || [];
+      if (mailpieces.length > 0) {
+        var mpWrap = document.createElement('div');
+        mpWrap.style.marginTop = '10px';
+        mpWrap.style.paddingTop = '10px';
+        mpWrap.style.borderTop = '1px solid ' + resolveColor('surface2');
+
+        var mpTitle = document.createElement('div');
+        mpTitle.style.fontWeight = '600';
+        mpTitle.style.fontSize = (w.text_size || 13) + 'px';
+        mpTitle.style.color = resolveColor('text');
+        mpTitle.style.marginBottom = '6px';
+        mpTitle.textContent = 'Mail details';
+        mpWrap.appendChild(mpTitle);
+
+        for (var i = 0; i < mailpieces.length; i++) {
+          var item = document.createElement('div');
+          item.style.fontSize = (w.text_size || 13) + 'px';
+          item.style.color = resolveColor('text');
+          item.style.marginBottom = '3px';
+          item.textContent = '\u2022 ' + mailpieces[i];
+          mpWrap.appendChild(item);
+        }
+        bodyEl.appendChild(mpWrap);
+      }
+
+      if (showImages) {
+        renderImageStrip(bodyEl, attrs.mailpiece_images || []);
+      }
+    }
+
+    var stateCache = w.entity ? (entityStates[w.entity] || null) : null;
+    if (w.entity) {
+      registerEntityCallback(w.entity, function(state) {
+        stateCache = state;
+        renderFromState(stateCache);
+      });
+    }
+    renderFromState(stateCache);
+  }
+
   // -- History Chart --
   // Fetches HA long-term statistics via recorder/statistics_during_period and
   // renders a vertical bar chart. One WS request on page load, then periodic refresh.
